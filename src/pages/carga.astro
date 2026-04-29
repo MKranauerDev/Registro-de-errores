@@ -36,7 +36,11 @@ const controladores = await prisma.controlador.findMany({
         <div class="form-grid">
           <label>
             Mes operativo
-            <input name="mesOperativo" placeholder="Ej: Abril 2026" required />
+            <input
+              name="mesOperativo"
+              placeholder="Mes de ordenes armadas"
+              required
+            />
           </label>
 
           <label>
@@ -63,7 +67,7 @@ const controladores = await prisma.controlador.findMany({
 
           <label>
             Cantidad
-            <input name="cantidad" type="number" min="1" value="1" />
+            <input name="cantidad" type="number" min="0" value="0" />
           </label>
 
           <label>
