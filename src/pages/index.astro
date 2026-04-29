@@ -1,0 +1,165 @@
+---
+import MainLayout from "../layouts/MainLayout.astro";
+---
+
+<MainLayout title="Sistema de relevamiento de errores de pickeo">
+  <main class="home-page">
+    <section class="hero">
+      <div class="hero-content">
+        <p class="kicker">Warehouse · Control operativo</p>
+
+        <h1>Sistema de relevamiento de errores de pickeo</h1>
+
+        <p class="description">
+          Plataforma interna para registrar faltantes, sobrantes y casos sin
+          error real por base mal cargada, manteniendo trazabilidad del proceso.
+        </p>
+
+        <div class="actions">
+          <a href="/carga" class="btn-primary">Ir a la carga</a>
+        </div>
+      </div>
+
+      <div class="hero-card">
+        <p class="card-label">Estado del sistema</p>
+        <h2>Base operativa activa</h2>
+        <p>
+          Formularios conectados a PostgreSQL mediante Prisma para registrar y
+          consultar información de forma estructurada.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <style>
+    :global(body) {
+      margin: 0;
+      font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    .home-page {
+      min-height: 100vh;
+      padding: 48px 20px;
+      background:
+        radial-gradient(
+          circle at top left,
+          rgba(219, 39, 119, 0.14),
+          transparent 32%
+        ),
+        linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
+    }
+
+    .hero {
+      max-width: 1120px;
+      min-height: calc(100vh - 96px);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .kicker {
+      margin: 0 0 14px;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #db2777;
+    }
+
+    h1 {
+      max-width: 850px;
+      margin: 0;
+      font-size: clamp(42px, 6vw, 76px);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+      color: #0f172a;
+    }
+
+    .description {
+      max-width: 720px;
+      margin: 24px 0 0;
+      font-size: 19px;
+      line-height: 1.7;
+      color: #64748b;
+    }
+
+    .actions {
+      margin-top: 34px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 24px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #0f172a, #334155);
+      color: white;
+      font-weight: 900;
+      text-decoration: none;
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.22);
+      transition: 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      background: linear-gradient(135deg, #db2777, #be185d);
+      box-shadow: 0 18px 38px rgba(219, 39, 119, 0.3);
+    }
+
+    .hero-card {
+      border-radius: 30px;
+      padding: 30px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+      backdrop-filter: blur(12px);
+    }
+
+    .card-label {
+      margin: 0 0 12px;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #db2777;
+    }
+
+    .hero-card h2 {
+      margin: 0;
+      font-size: 28px;
+      color: #0f172a;
+    }
+
+    .hero-card p:last-child {
+      margin: 14px 0 0;
+      line-height: 1.6;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    @media (max-width: 860px) {
+      .hero {
+        grid-template-columns: 1fr;
+        align-items: start;
+        padding-top: 40px;
+      }
+
+      .hero-card {
+        max-width: 520px;
+      }
+    }
+  </style>
+</MainLayout>

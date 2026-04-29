@@ -1,0 +1,349 @@
+---
+export const prerender = false;
+
+import MainLayout from "../layouts/MainLayout.astro";
+import { prisma } from "../lib/prisma";
+
+const estaciones = await prisma.estacion.findMany({
+  where: { activo: true },
+  orderBy: { codigo: "asc" },
+});
+
+const pickers = await prisma.picker.findMany({
+  where: { activo: true },
+  orderBy: { nombre: "asc" },
+});
+
+const controladores = await prisma.controlador.findMany({
+  where: { activo: true },
+  orderBy: { nombre: "asc" },
+});
+---
+
+<MainLayout title="Carga de relevamientos">
+  <main class="page">
+    <section class="panel">
+      <div class="header">
+        <p class="kicker">Control operativo</p>
+        <h1>Carga de relevamiento</h1>
+        <p class="description">
+          Registrá faltantes, sobrantes o casos sin error de pickeo para
+          mantener trazabilidad operativa.
+        </p>
+      </div>
+
+      <form id="relevamiento-form" class="form-card">
+        <div class="form-grid">
+          <label>
+            Mes operativo
+            <input name="mesOperativo" placeholder="Ej: Abril 2026" required />
+          </label>
+
+          <label>
+            Remito
+            <input name="remito" placeholder="Número de remito" required />
+          </label>
+
+          <label>
+            CBI
+            <input name="cbi" placeholder="Código CBI" required />
+          </label>
+
+          <label>
+            Resultado del control
+            <select name="resultadoControl" required>
+              <option value="">Seleccionar</option>
+              <option value="FALTANTE">Faltante</option>
+              <option value="SOBRANTE">Sobrante</option>
+              <option value="SIN_ERROR_BASE"
+                >Sin error / Base mal cargada</option
+              >
+            </select>
+          </label>
+
+          <label>
+            Cantidad
+            <input name="cantidad" type="number" min="1" value="1" />
+          </label>
+
+          <label>
+            Estación
+            <select name="estacionId" required>
+              <option value="">Seleccionar</option>
+              {estaciones.map((e) => <option value={e.id}>{e.codigo}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Picker
+            <select name="pickerId" required>
+              <option value="">Seleccionar</option>
+              {pickers.map((p) => <option value={p.id}>{p.nombre}</option>)}
+            </select>
+          </label>
+
+          <label>
+            SKU
+            <input name="skuCodigo" placeholder="Ej: 06102583" required />
+          </label>
+
+          <label>
+            Controlado por
+            <select name="controladorId" required>
+              <option value="">Seleccionar</option>
+              {
+                controladores.map((c) => (
+                  <option value={c.id}>{c.nombre}</option>
+                ))
+              }
+            </select>
+          </label>
+
+          <label class="full">
+            Observación
+            <textarea
+              name="observacion"
+              rows="4"
+              placeholder="Agregar detalle del caso..."></textarea>
+          </label>
+        </div>
+
+        <div class="actions">
+          <p id="status"></p>
+
+          <button id="btn-guardar" type="button"> Guardar relevamiento </button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const form = document.querySelector("#relevamiento-form");
+    const statusEl = document.querySelector("#status");
+    const submitBtn = document.querySelector("#btn-guardar");
+
+    submitBtn?.addEventListener("click", async () => {
+      if (
+        !(form instanceof HTMLFormElement) ||
+        !(statusEl instanceof HTMLParagraphElement)
+      ) {
+        return;
+      }
+
+      const formData = new FormData(form);
+
+      try {
+        const res = await fetch("/api/relevamientos", {
+          method: "POST",
+          body: formData,
+        });
+
+        const raw = await res.text();
+        const data = raw ? JSON.parse(raw) : {};
+
+        if (res.ok) {
+          statusEl.textContent = "Relevamiento guardado correctamente.";
+          statusEl.className = "success";
+          form.reset();
+        } else {
+          statusEl.textContent = data.detalle || data.error || "Error.";
+          statusEl.className = "error";
+        }
+      } catch (error) {
+        statusEl.textContent =
+          error instanceof Error ? error.message : "Error de conexión.";
+        statusEl.className = "error";
+      }
+    });
+  </script>
+
+  <style>
+    :global(body) {
+      margin: 0;
+      font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 48px 20px;
+      background:
+        radial-gradient(
+          circle at top left,
+          rgba(219, 39, 119, 0.12),
+          transparent 30%
+        ),
+        linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
+    }
+
+    .panel {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 28px;
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #db2777;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 52px);
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: #0f172a;
+    }
+
+    .description {
+      max-width: 720px;
+      margin: 14px 0 0;
+      font-size: 17px;
+      line-height: 1.6;
+      color: #64748b;
+    }
+
+    .form-card {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 28px;
+      padding: 30px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+      backdrop-filter: blur(12px);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 800;
+      color: #334155;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 16px;
+      padding: 13px 15px;
+      font: inherit;
+      font-weight: 600;
+      color: #0f172a;
+      background: #f8fafc;
+      outline: none;
+      transition: 0.2s ease;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: #94a3b8;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: #db2777;
+      background: #ffffff;
+      box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 28px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 14px 28px;
+      font: inherit;
+      font-weight: 900;
+      color: white;
+      background: linear-gradient(135deg, #0f172a, #334155);
+      cursor: pointer;
+      box-shadow: 0 14px 28px rgba(15, 23, 42, 0.22);
+      transition: 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      background: linear-gradient(135deg, #db2777, #be185d);
+      box-shadow: 0 16px 34px rgba(219, 39, 119, 0.28);
+    }
+
+    #status {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    :global(.success) {
+      color: #047857;
+    }
+
+    :global(.error) {
+      color: #dc2626;
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        padding: 28px 14px;
+      }
+
+      .form-card {
+        padding: 22px;
+        border-radius: 22px;
+      }
+
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        align-items: stretch;
+        flex-direction: column-reverse;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</MainLayout>

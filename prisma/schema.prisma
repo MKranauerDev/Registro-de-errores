@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ResultadoControl {
+  FALTANTE
+  SOBRANTE
+  SIN_ERROR_BASE
+}
+
+model Picker {
+  id            Int            @id @default(autoincrement())
+  nombre        String         @unique
+  activo        Boolean        @default(true)
+  relevamientos Relevamiento[]
+}
+
+model Estacion {
+  id            Int            @id @default(autoincrement())
+  codigo        String         @unique
+  activo        Boolean        @default(true)
+  relevamientos Relevamiento[]
+}
+
+model Controlador {
+  id            Int            @id @default(autoincrement())
+  nombre        String         @unique
+  activo        Boolean        @default(true)
+  relevamientos Relevamiento[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Sku {
+  id          Int     @id @default(autoincrement())
+  codigo      String  @unique
+  descripcion String?
+
+  width      Float?
+  depth      Float?
+  height     Float?
+  cubicaje   Float?
+  pesoBranch Float?
+  piezasCaja Int?
+
+  activo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  relevamientos Relevamiento[]
+}
+
+model Relevamiento {
+  id               Int              @id @default(autoincrement())
+  fechaCarga       DateTime         @default(now())
+  mesOperativo     String
+  remito           String
+  cbi              String
+  resultadoControl ResultadoControl
+  cantidad         Int              @default(1)
+  observacion      String?
+
+  estacionId    Int
+  pickerId      Int
+  skuId         Int
+  controladorId Int
+
+  estacion    Estacion    @relation(fields: [estacionId], references: [id])
+  picker      Picker      @relation(fields: [pickerId], references: [id])
+  sku         Sku         @relation(fields: [skuId], references: [id])
+  controlador Controlador @relation(fields: [controladorId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
