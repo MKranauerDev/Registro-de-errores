@@ -13,17 +13,38 @@ enum ResultadoControl {
 }
 
 model Picker {
-  id            Int            @id @default(autoincrement())
-  nombre        String         @unique
-  activo        Boolean        @default(true)
+  id            Int                       @id @default(autoincrement())
+  nombre        String                    @unique
+  activo        Boolean                   @default(true)
   relevamientos Relevamiento[]
+  asignaciones  EstacionPickerHistorial[]
+  jornadas      PickerJornada[]
 }
 
 model Estacion {
-  id            Int            @id @default(autoincrement())
-  codigo        String         @unique
-  activo        Boolean        @default(true)
+  id            Int                       @id @default(autoincrement())
+  codigo        String                    @unique
+  activo        Boolean                   @default(true)
   relevamientos Relevamiento[]
+  asignaciones  EstacionPickerHistorial[]
+  jornadas      PickerJornada[]
+}
+
+model EstacionPickerHistorial {
+  id         Int       @id @default(autoincrement())
+  estacionId Int
+  pickerId   Int
+  fechaDesde DateTime  @default(now())
+  fechaHasta DateTime?
+  esActual   Boolean   @default(true)
+
+  estacion Estacion @relation(fields: [estacionId], references: [id])
+  picker   Picker   @relation(fields: [pickerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estacionId, esActual])
 }
 
 model Controlador {
@@ -47,12 +68,40 @@ model Sku {
   pesoBranch Float?
   piezasCaja Int?
 
+  imagenUrl String?
+
   activo Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   relevamientos Relevamiento[]
+  posiciones    SkuPosicionHistorial[]
+}
+
+enum EstadoSkuLinea {
+  EN_LINEA
+  FUERA_DE_LINEA
+}
+
+model SkuPosicionHistorial {
+  id            Int            @id @default(autoincrement())
+  skuId         Int
+  posicion      String?
+  estado        EstadoSkuLinea @default(EN_LINEA)
+  fechaDesde    DateTime       @default(now())
+  fechaHasta    DateTime?
+  esActual      Boolean        @default(true)
+  motivoCambio  String?
+  usuarioCambio String?
+
+  sku Sku @relation(fields: [skuId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([skuId, esActual])
+  @@index([estado])
 }
 
 model Relevamiento {
@@ -70,6 +119,11 @@ model Relevamiento {
   skuId         Int
   controladorId Int
 
+  posicionSkuAlMomento String?
+  estadoSkuAlMomento   EstadoSkuLinea?
+  pickerAlMomento      String?
+  controladorAlMomento String?
+
   estacion    Estacion    @relation(fields: [estacionId], references: [id])
   picker      Picker      @relation(fields: [pickerId], references: [id])
   sku         Sku         @relation(fields: [skuId], references: [id])
@@ -77,4 +131,80 @@ model Relevamiento {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum TipoBloqueLinea {
+  PRODUCCION
+  DESCANSO
+  MANTENIMIENTO
+  SIN_ORDENES
+  PARADA_OPERATIVA
+}
+
+enum Transporte {
+  OCA
+  URBANO
+  ANDREANI
+  CDS
+}
+
+model JornadaLinea {
+  id           Int      @id @default(autoincrement())
+  fecha        DateTime
+  mesOperativo String
+  observacion  String?
+
+  bloques      BloqueLinea[]
+  pickersLinea PickerJornada[]
+  produccion   ProduccionTransporte[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BloqueLinea {
+  id          Int             @id @default(autoincrement())
+  jornadaId   Int
+  tipo        TipoBloqueLinea
+  horaInicio  DateTime
+  horaFin     DateTime?
+  observacion String?
+
+  jornada JornadaLinea @relation(fields: [jornadaId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PickerJornada {
+  id         Int @id @default(autoincrement())
+  jornadaId  Int
+  pickerId   Int
+  estacionId Int
+
+  horaDesde DateTime?
+  horaHasta DateTime?
+  activo    Boolean   @default(true)
+
+  jornada  JornadaLinea @relation(fields: [jornadaId], references: [id])
+  picker   Picker       @relation(fields: [pickerId], references: [id])
+  estacion Estacion     @relation(fields: [estacionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProduccionTransporte {
+  id         Int        @id @default(autoincrement())
+  jornadaId  Int
+  transporte Transporte
+  cantidad   Int        @default(0)
+  pallets    Int?
+
+  jornada JornadaLinea @relation(fields: [jornadaId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jornadaId, transporte])
 }
