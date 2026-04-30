@@ -1,0 +1,194 @@
+---
+import { prisma } from "../lib/prisma";
+import AppLayout from "../layouts/AppLayout.astro";
+
+export const prerender = false;
+
+const jornadas = await prisma.jornadaLinea.findMany({
+  orderBy: {
+    fecha: "desc",
+  },
+  include: {
+    bloques: true,
+    pickersLinea: true,
+    produccion: true,
+  },
+});
+---
+
+<AppLayout title="Producción de línea">
+  <section class="hero">
+    <p class="eyebrow">MARY KAY · Línea de pickeo</p>
+    <h1>Producción de línea</h1>
+    <p>
+      Gestión diaria de jornadas, bloques de producción, paradas, pickers y
+      paquetes armados.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Nueva jornada</h2>
+
+    <form method="POST" action="/api/produccion/jornadas" class="form">
+      <label>
+        Fecha operativa
+        <input type="date" name="fecha" required />
+      </label>
+
+      <label>
+        Mes operativo
+        <input
+          type="text"
+          name="mesOperativo"
+          placeholder="Ej: Abril 2026"
+          required
+        />
+      </label>
+
+      <label>
+        Observación
+        <textarea name="observacion" placeholder="Opcional"></textarea>
+      </label>
+
+      <button type="submit">Crear jornada</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Jornadas creadas</h2>
+
+    {
+      jornadas.length === 0 ? (
+        <p>No hay jornadas cargadas todavía.</p>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Mes operativo</th>
+                <th>Bloques</th>
+                <th>Pickers</th>
+                <th>Producción</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {jornadas.map((jornada) => (
+                <tr>
+                  <td>{jornada.fecha.toLocaleDateString("es-AR")}</td>
+                  <td>{jornada.mesOperativo}</td>
+                  <td>{jornada.bloques.length}</td>
+                  <td>{jornada.pickersLinea.length}</td>
+                  <td>{jornada.produccion.length}</td>
+                  <td>
+                    <a href={`/produccion/${jornada.id}`}>Ver detalle</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+  </section>
+</AppLayout>
+<style>
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #f4f7fb;
+    color: #172033;
+  }
+
+  .page {
+    width: min(1180px, 92%);
+    margin: 0 auto;
+    padding: 40px 0;
+  }
+
+  .hero {
+    margin-bottom: 28px;
+  }
+
+  .eyebrow {
+    color: #d63384;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    font-size: 0.8rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 4vw, 3.2rem);
+    margin: 0;
+  }
+
+  .card {
+    background: white;
+    border-radius: 24px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .form {
+    display: grid;
+    gap: 16px;
+  }
+
+  label {
+    display: grid;
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  input,
+  textarea {
+    border: 1px solid #d9e2ef;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font: inherit;
+  }
+
+  textarea {
+    min-height: 90px;
+  }
+
+  button {
+    width: fit-content;
+    border: 0;
+    border-radius: 999px;
+    padding: 12px 22px;
+    background: #0f3d75;
+    color: white;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 14px;
+    border-bottom: 1px solid #edf1f7;
+    text-align: left;
+  }
+
+  th {
+    color: #667085;
+    font-size: 0.85rem;
+  }
+
+  a {
+    color: #0f3d75;
+    font-weight: 800;
+    text-decoration: none;
+  }
+</style>

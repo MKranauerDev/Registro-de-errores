@@ -1,0 +1,737 @@
+---
+import { prisma } from "../../lib/prisma";
+import AppLayout from "../../layouts/AppLayout.astro";
+
+export const prerender = false;
+
+const { id } = Astro.params;
+
+const jornada = await prisma.jornadaLinea.findUnique({
+  where: { id: Number(id) },
+  include: {
+    bloques: { orderBy: { horaInicio: "asc" } },
+    pickersLinea: {
+      include: { picker: true, estacion: true },
+    },
+    produccion: true,
+  },
+});
+
+if (!jornada) return Astro.redirect("/produccion");
+
+// métricas
+const totalPaquetes = jornada.produccion.reduce(
+  (acc, p) => acc + p.cantidad,
+  0,
+);
+
+const totalPallets = jornada.produccion.reduce(
+  (acc, p) => acc + (p.pallets || 0),
+  0,
+);
+
+function calcularHoras(inicio: Date, fin: Date | null) {
+  if (!fin) return 0;
+
+  const diffMs = fin.getTime() - inicio.getTime();
+  return diffMs > 0 ? diffMs / 1000 / 60 / 60 : 0;
+}
+
+const horasProductivas = jornada.bloques
+  .filter((b) => b.tipo === "PRODUCCION")
+  .reduce((acc, b) => acc + calcularHoras(b.horaInicio, b.horaFin), 0);
+
+const horasTotalesLinea = jornada.bloques.reduce(
+  (acc, b) => acc + calcularHoras(b.horaInicio, b.horaFin),
+  0,
+);
+
+const cantidadPickers = jornada.pickersLinea.length;
+
+const horasHombre =
+  horasProductivas > 0 && cantidadPickers > 0
+    ? horasProductivas * cantidadPickers
+    : 0;
+
+const eficiencia = horasHombre > 0 ? totalPaquetes / horasHombre : 0;
+
+const eficienciaClase =
+  eficiencia === 0
+    ? "stat-neutral"
+    : eficiencia < 15
+      ? "stat-danger"
+      : eficiencia < 25
+        ? "stat-warning"
+        : "stat-success";
+
+const editarBloqueId = Astro.url.searchParams.get("editarBloque");
+
+const pickers = await prisma.picker.findMany({
+  where: { activo: true },
+  orderBy: { nombre: "asc" },
+});
+
+const estaciones = await prisma.estacion.findMany({
+  where: { activo: true },
+  orderBy: { codigo: "asc" },
+});
+---
+
+<AppLayout title="Jornada">
+  <a href="/produccion" class="back">← Volver</a>
+
+  <section class="hero">
+    <p class="eyebrow">Producción de línea</p>
+    <h1>Jornada {jornada.fecha.toLocaleDateString("es-AR")}</h1>
+    <p>Mes operativo: <strong>{jornada.mesOperativo}</strong></p>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats stats-top">
+    <div class="stat">
+      <span>Paquetes</span>
+      <strong>{totalPaquetes}</strong>
+    </div>
+
+    <div class="stat">
+      <span>Pallets</span>
+      <strong>{totalPallets}</strong>
+    </div>
+
+    <div class="stat">
+      <span>Bloques</span>
+      <strong>{jornada.bloques.length}</strong>
+    </div>
+
+    <div class="stat">
+      <span>Pickers</span>
+      <strong>{jornada.pickersLinea.length}</strong>
+    </div>
+  </section>
+
+  <section class="stats stats-bottom">
+    <div class="stat">
+      <span>Hs producción</span>
+      <strong>{horasProductivas.toFixed(2)}</strong>
+    </div>
+
+    <div class="stat">
+      <span>Hs hombre</span>
+      <strong>{horasHombre.toFixed(2)}</strong>
+    </div>
+
+    <div class={`stat ${eficienciaClase}`}>
+      <span>Eficiencia</span>
+      <strong>{eficiencia.toFixed(2)}</strong>
+    </div>
+  </section>
+
+  <!-- TABLAS -->
+  <section class="grid">
+    <!-- BLOQUES -->
+    <div class="card card-grid card-scroll bloques" id="bloques">
+      <h3>Bloques</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Inicio</th>
+            <th>Fin</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {
+            jornada.bloques.map((b) => {
+              const estaEditando = String(b.id) === editarBloqueId;
+
+              return (
+                <tr>
+                  <td>
+                    <span class={`badge ${b.tipo.toLowerCase()}`}>
+                      {b.tipo}
+                    </span>
+                  </td>
+
+                  <td>
+                    {estaEditando ? (
+                      <input
+                        type="time"
+                        name="horaInicio"
+                        value={b.horaInicio.toISOString().slice(11, 16)}
+                        form={`edit-form-${b.id}`}
+                      />
+                    ) : (
+                      b.horaInicio.toLocaleTimeString("es-AR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    )}
+                  </td>
+
+                  <td>
+                    {estaEditando ? (
+                      <input
+                        type="time"
+                        name="horaFin"
+                        value={
+                          b.horaFin ? b.horaFin.toISOString().slice(11, 16) : ""
+                        }
+                        form={`edit-form-${b.id}`}
+                      />
+                    ) : b.horaFin ? (
+                      b.horaFin.toLocaleTimeString("es-AR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+
+                  <td>
+                    {estaEditando ? (
+                      <>
+                        <form
+                          id={`edit-form-${b.id}`}
+                          method="POST"
+                          action="/api/produccion/bloques/editar"
+                          class="edit-form"
+                        >
+                          <input type="hidden" name="bloqueId" value={b.id} />
+                          <input
+                            type="hidden"
+                            name="jornadaId"
+                            value={jornada.id}
+                          />
+
+                          <button class="btn-edit">Guardar</button>
+                        </form>
+
+                        <a
+                          href={`/produccion/${jornada.id}#bloques`}
+                          class="btn-cancel"
+                        >
+                          Cancelar
+                        </a>
+                      </>
+                    ) : (
+                      <>
+                        <a
+                          class="btn-edit-link"
+                          href={`/produccion/${jornada.id}?editarBloque=${b.id}#bloques`}
+                        >
+                          Editar
+                        </a>
+
+                        <form
+                          method="POST"
+                          action="/api/produccion/bloques/eliminar"
+                          class="delete-form"
+                        >
+                          <input type="hidden" name="bloqueId" value={b.id} />
+                          <input
+                            type="hidden"
+                            name="jornadaId"
+                            value={jornada.id}
+                          />
+                          <button type="submit" class="btn-delete">
+                            Eliminar
+                          </button>
+                        </form>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PRODUCCIÓN -->
+    <div class="card card-grid card-produccion">
+      <h3>Producción</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Transporte</th>
+            <th>Paquetes</th>
+            <th>Pallets</th>
+            <th>Ratio</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {
+            jornada.produccion.map((p) => (
+              <tr>
+                <td>{p.transporte}</td>
+                <td>{p.cantidad}</td>
+                <td>{p.pallets ?? 0}</td>
+                <td>
+                  {p.pallets && p.pallets > 0
+                    ? Math.round(p.cantidad / p.pallets)
+                    : "-"}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <!-- PICKERS -->
+    <div class="card card-grid card-scroll pickers">
+      <h3>Pickers</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Estación</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {
+            jornada.pickersLinea.map((p) => (
+              <tr>
+                <td>{p.picker.nombre}</td>
+                <td>{p.estacion.codigo}</td>
+
+                <td>
+                  <form
+                    method="POST"
+                    action="/api/produccion/pickers/eliminar"
+                    class="delete-form"
+                  >
+                    <input type="hidden" name="pickerJornadaId" value={p.id} />
+                    <input type="hidden" name="jornadaId" value={jornada.id} />
+                    <button type="submit" class="btn-delete">
+                      Eliminar
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- BLOQUE -->
+  <section class="card">
+    <h2>Agregar bloque</h2>
+
+    <form method="POST" action="/api/produccion/bloques" class="form">
+      <input type="hidden" name="jornadaId" value={jornada.id} />
+
+      <select name="tipo">
+        <option value="PRODUCCION">Producción</option>
+        <option value="DESCANSO">Descanso</option>
+        <option value="MANTENIMIENTO">Mantenimiento</option>
+        <option value="SIN_ORDENES">Sin órdenes</option>
+      </select>
+
+      <input type="time" name="horaInicio" required />
+      <input type="time" name="horaFin" />
+      <input type="text" name="observacion" placeholder="Observación" />
+
+      <button>Agregar</button>
+    </form>
+  </section>
+
+  <!-- PICKER -->
+  <section class="card">
+    <h2>Agregar picker a la línea</h2>
+
+    <form method="POST" action="/api/produccion/pickers" class="form">
+      <input type="hidden" name="jornadaId" value={jornada.id} />
+
+      <select name="pickerId">
+        {pickers.map((p) => <option value={p.id}>{p.nombre}</option>)}
+      </select>
+
+      <select name="estacionId">
+        {estaciones.map((e) => <option value={e.id}>{e.codigo}</option>)}
+      </select>
+
+      <input type="time" name="horaDesde" />
+      <input type="time" name="horaHasta" />
+
+      <button>Agregar</button>
+    </form>
+  </section>
+
+  <!-- PRODUCCIÓN -->
+  <section class="card">
+    <h2>Cargar producción</h2>
+
+    <form method="POST" action="/api/produccion/transportes" class="form">
+      <input type="hidden" name="jornadaId" value={jornada.id} />
+
+      <select name="transporte">
+        <option value="OCA">OCA</option>
+        <option value="URBANO">URBANO</option>
+        <option value="ANDREANI">ANDREANI</option>
+        <option value="CDS">CDS</option>
+      </select>
+
+      <input type="number" name="cantidad" placeholder="Paquetes" required />
+      <input type="number" name="pallets" placeholder="Pallets" />
+
+      <button>Guardar</button>
+    </form>
+  </section>
+</AppLayout>
+<style>
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #f4f7fb;
+    color: #172033;
+  }
+
+  .page {
+    width: min(1200px, 92%);
+    margin: auto;
+    padding: 50px 0;
+  }
+
+  .back {
+    color: #0f3d75;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .hero {
+    margin: 28px 0;
+  }
+
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 4.5rem);
+    margin: 0 0 18px;
+    line-height: 1;
+  }
+
+  .eyebrow {
+    color: #d63384;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+  }
+
+  .stats {
+    display: grid;
+    gap: 14px;
+    margin: 20px 0;
+  }
+
+  .stats-top {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .stats-bottom {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stat {
+    background: white;
+    border-radius: 22px;
+    padding: 24px 28px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    border-left: 5px solid #0f3d75;
+    min-height: 120px;
+  }
+
+  .stat span {
+    font-size: 1rem;
+    color: #667085;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .stat strong {
+    font-size: clamp(2.2rem, 3vw, 3rem);
+    font-weight: 950;
+    color: #172033;
+    line-height: 1;
+  }
+
+  .stat-neutral {
+    background: #0f3d75;
+  }
+
+  .stat-danger {
+    background: #b42318;
+  }
+
+  .stat-warning {
+    background: #f59e0b;
+  }
+
+  .stat-success {
+    background: #15803d;
+  }
+
+  .stat-neutral span,
+  .stat-neutral strong,
+  .stat-danger span,
+  .stat-danger strong,
+  .stat-warning span,
+  .stat-warning strong,
+  .stat-success span,
+  .stat-success strong {
+    color: white;
+  }
+
+  .card {
+    background: white;
+    padding: 28px; /* antes 24px */
+    border-radius: 24px;
+    margin-bottom: 28px; /* importante */
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.06);
+  }
+
+  .form {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    align-items: end;
+  }
+
+  input,
+  select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d9e2ef;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font: inherit;
+    background: white;
+  }
+
+  button {
+    background: #0f3d75;
+    color: white;
+    border: none;
+    border-radius: 999px;
+    padding: 13px 18px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr; /* 👈 antes 2fr 1fr */
+    grid-template-areas:
+      "bloques produccion"
+      "pickers pickers";
+    column-gap: 32px;
+    row-gap: 36px;
+    margin: 32px 0;
+  }
+
+  .grid > .card {
+    margin-bottom: 0;
+  }
+
+  .grid .card {
+    margin-bottom: 0;
+  }
+
+  .card-grid {
+    display: flex;
+    flex-direction: column;
+    height: 80%;
+    min-height: 180px;
+  }
+
+  .card-scroll {
+    max-height: 350px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .card-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .card-scroll::-webkit-scrollbar-track {
+    background: #eef2f7;
+    border-radius: 999px;
+  }
+
+  .card-scroll::-webkit-scrollbar-thumb {
+    background: #0f3d75;
+    border-radius: 999px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  th,
+  td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #edf1f7;
+    text-align: left;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    vertical-align: middle;
+  }
+
+  th {
+    color: #667085;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+  }
+
+  .badge {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 900;
+    display: inline-flex;
+  }
+
+  .produccion {
+    background: #e6f7ec;
+  }
+
+  .descanso {
+    background: #e8f0ff;
+  }
+
+  .mantenimiento {
+    background: #ffe8e8;
+  }
+
+  .sin_ordenes {
+    background: #fff4e6;
+  }
+
+  .delete-form {
+    display: inline;
+    margin: 0;
+  }
+
+  .btn-delete {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+
+  .btn-delete:hover {
+    background: #fecaca;
+  }
+
+  .edit-form {
+    display: inline;
+  }
+
+  .btn-edit {
+    background: #e0f2fe;
+    color: #075985;
+    font-size: 0.75rem;
+    padding: 6px 10px;
+  }
+
+  .btn-edit-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e0f2fe;
+    color: #075985;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    text-decoration: none;
+    margin: 6px 0 4px;
+  }
+
+  .btn-cancel {
+    margin-left: 6px;
+    font-size: 0.75rem;
+    color: #667085;
+    text-decoration: none;
+  }
+
+  .btn-cancel:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "bloques"
+        "produccion"
+        "pickers";
+    }
+
+    .stats-top,
+    .stats-bottom {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .form {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Primera columna (Tipo / Nombre / Transporte) */
+  td:first-child {
+    max-width: 100px;
+    white-space: normal;
+    word-break: break-word;
+  }
+  /* Headers también más compactos */
+
+  .bloques {
+    grid-area: bloques;
+  }
+
+  .card-produccion {
+    grid-area: produccion;
+    width: 90%;
+  }
+
+  .pickers {
+    grid-area: pickers;
+    max-height: 315px;
+  }
+
+  .sidebar nav {
+    display: grid;
+    gap: 10px;
+  }
+
+  .sidebar a {
+    color: #dbe7ff;
+    text-decoration: none;
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-weight: 700;
+  }
+
+  .sidebar a:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+</style>
