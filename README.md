@@ -1,46 +1,103 @@
-# Astro Starter Kit: Minimal
+# 📦 Sistema de Control de Pickeo y Producción
 
-```sh
-npm create astro@latest -- --template minimal
-```
+Aplicación web para la gestión operativa de líneas de pickeo, control de errores y seguimiento de productividad en tiempo real.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+---
 
-## 🚀 Project Structure
+## 🚀 Funcionalidades principales
 
-Inside of your Astro project, you'll see the following folders and files:
+### 📊 Producción de línea
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
-```
+- Registro de jornadas operativas
+- Gestión de bloques de tiempo:
+  - Producción
+  - Descanso
+  - Mantenimiento
+  - Sin órdenes
+- Cálculo automático de:
+  - Horas productivas
+  - Horas hombre
+  - Eficiencia de línea
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+### 👷 Gestión de pickers
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+- Asignación de operarios a estaciones
+- Visualización de equipo activo en línea
+- Eliminación dinámica de asignaciones
 
-Any static assets, like images, can be placed in the `public/` directory.
+### 📦 Producción por transporte
 
-## 🧞 Commands
+- Registro de producción por canal:
+  - OCA
+  - Andreani
+  - Urbano
+  - CDS
+- Soporte de:
+  - Cantidad de paquetes
+  - Cantidad de pallets
+  - Ratio paquetes/pallet
 
-All commands are run from the root of the project, from a terminal:
+### ⚠️ Control de errores de pickeo
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+- Registro de errores:
+  - Faltantes
+  - Sobrantes
+  - Sin error (desvío de sistema)
+- Trazabilidad por:
+  - Picker
+  - Estación
+  - SKU
+  - Controlador
 
-## 👀 Want to learn more?
+---
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+## 🧠 Métricas operativas
+
+El sistema calcula automáticamente:
+
+- 📦 Total de paquetes
+- 🧱 Total de pallets
+- ⏱ Horas productivas
+- 👥 Horas hombre
+- ⚡ Eficiencia (paquetes / hora hombre)
+
+Clasificación de eficiencia:
+
+- 🔴 < 190 → Baja
+- 🟡 191→220 Media
+- 🟢 ≥ 221 → Alta
+
+---
+
+## 🧩 Arquitectura
+
+- **Frontend:** Astro
+- **Backend:** Astro API Routes
+- **Base de datos:** PostgreSQL
+- **ORM:** Prisma
+
+---
+
+## 🎨 UI / UX
+
+- Layout con navegación lateral (Sidebar)
+- Dashboard operativo con métricas en tiempo real
+- Tablas optimizadas para lectura en planta
+- Scroll inteligente para listas largas
+- Diseño responsive
+
+---
+
+## ⚙️ Instalación
+
+```bash
+git clone https://github.com/tu-usuario/tu-repo.git
+cd tu-repo
+
+npm install
+npx prisma generate
+npx prisma migrate dev
 
 npm run dev
 npx prisma studio
+```
