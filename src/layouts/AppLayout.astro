@@ -1,0 +1,34 @@
+---
+import Sidebar from "../components/Sidebar.astro";
+
+const { title = "Sistema de Pickeo" } = Astro.props;
+---
+
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{title}</title>
+  </head>
+
+  <body>
+    <Sidebar />
+
+    <main class="app-content">
+      <slot />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #f4f7fb;
+    color: #172033;
+  }
+
+  .app-content {
+    margin-left: 300px;
+    padding: 50px 40px;
+  }
+</style>
