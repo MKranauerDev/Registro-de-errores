@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "RelevamientoCaso" ADD COLUMN     "fechaHoraError" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

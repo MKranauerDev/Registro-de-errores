@@ -101,3 +101,5 @@ npx prisma migrate dev
 npm run dev
 npx prisma studio
 ```
+
+matias.kranauer@gmail.com admin12345

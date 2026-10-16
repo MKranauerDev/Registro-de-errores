@@ -1,0 +1,596 @@
+---
+export const prerender = false;
+
+import AppLayout from "../../layouts/AppLayout.astro";
+import { prisma } from "../../lib/prisma";
+
+const url = new URL(Astro.request.url);
+
+const estado = url.searchParams.get("estado") ?? "todos";
+const q = url.searchParams.get("q")?.trim() ?? "";
+const limitParam = url.searchParams.get("limit") ?? "100";
+const orden = url.searchParams.get("orden") ?? "posicion-asc";
+
+const allowedLimits = ["100", "250", "500", "todos"];
+const limitValue = allowedLimits.includes(limitParam) ? limitParam : "100";
+const limiteVista = limitValue === "todos" ? undefined : Number(limitValue);
+
+const estadoWhere =
+  estado === "en-linea"
+    ? { posiciones: { some: { esActual: true } } }
+    : estado === "sin-ubicacion"
+      ? { posiciones: { none: { esActual: true } } }
+      : {};
+
+const busquedaWhere = q
+  ? {
+      OR: [
+        { codigo: { contains: q, mode: "insensitive" } },
+        { descripcion: { contains: q, mode: "insensitive" } },
+        {
+          posiciones: {
+            some: {
+              esActual: true,
+              posicion: {
+                contains: q,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+      ],
+    }
+  : {};
+
+const where = {
+  AND: [estadoWhere, busquedaWhere],
+};
+
+const totalFiltrado = await prisma.sku.count({ where });
+
+const skusBase = await prisma.sku.findMany({
+  where,
+  orderBy: {
+    codigo: "asc",
+  },
+  include: {
+    posiciones: {
+      where: { esActual: true },
+      take: 1,
+    },
+  },
+});
+
+const skusOrdenados = [...skusBase].sort((a, b) => {
+  const posicionA = a.posiciones[0]?.posicion ?? "ZZ999";
+  const posicionB = b.posiciones[0]?.posicion ?? "ZZ999";
+
+  const estacionA = posicionA.slice(0, 2);
+  const estacionB = posicionB.slice(0, 2);
+
+  switch (orden) {
+    case "estacion-asc":
+      return (
+        estacionA.localeCompare(estacionB) || posicionA.localeCompare(posicionB)
+      );
+
+    case "estacion-desc":
+      return (
+        estacionB.localeCompare(estacionA) || posicionB.localeCompare(posicionA)
+      );
+
+    case "posicion-desc":
+      return posicionB.localeCompare(posicionA);
+
+    case "codigo-asc":
+      return a.codigo.localeCompare(b.codigo);
+
+    case "codigo-desc":
+      return b.codigo.localeCompare(a.codigo);
+
+    case "posicion-asc":
+    default:
+      return posicionA.localeCompare(posicionB);
+  }
+});
+
+type SkuConPosicion = (typeof skusBase)[number];
+
+const skusVista: SkuConPosicion[] = limiteVista
+  ? skusOrdenados.slice(0, limiteVista)
+  : skusOrdenados;
+
+const totalSkus = await prisma.sku.count();
+
+const skusConPosicion = await prisma.sku.count({
+  where: {
+    posiciones: {
+      some: {
+        esActual: true,
+      },
+    },
+  },
+});
+
+const skusSinPosicion = totalSkus - skusConPosicion;
+
+const tituloFiltro =
+  estado === "en-linea"
+    ? "Mostrando SKUs en línea"
+    : estado === "sin-ubicacion"
+      ? "Mostrando SKUs sin ubicación"
+      : "Mostrando todos los SKUs";
+---
+
+<AppLayout title="Base de SKUs">
+  <section class="panel">
+    <div class="header">
+      <p class="kicker">Base de SKUs</p>
+
+      <h1>Base maestra de artículos</h1>
+
+      <p class="description">
+        Consultá el estado actual de la base de SKUs, actualizá el maestro de
+        artículos y cargá posiciones actuales desde las planillas operativas.
+      </p>
+    </div>
+
+    <div class="tabs">
+      <a class="tab active" href="/base-skus">Base actual</a>
+      <a class="tab" href="/base-skus/cargar">Cargar maestro</a>
+      <a class="tab" href="/base-skus/posiciones">Actualizar posiciones</a>
+    </div>
+
+    <div class="cards">
+      <article class="card">
+        <span>Total SKUs</span>
+        <strong>{totalSkus}</strong>
+      </article>
+
+      <article class="card">
+        <span>Con posición</span>
+        <strong>{skusConPosicion}</strong>
+      </article>
+
+      <article class="card">
+        <span>Sin posición</span>
+        <strong>{skusSinPosicion}</strong>
+      </article>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header">
+        <h2>Vista actual de la base</h2>
+        <p>{tituloFiltro}. Resultados encontrados: {totalFiltrado}.</p>
+      </div>
+
+      <form class="search-bar" method="GET" action="/base-skus">
+        <input type="hidden" name="estado" value={estado} />
+
+        <div class="search-row">
+          <label class="field search-field">
+            <span>Buscar SKU, descripción o posición</span>
+            <input
+              name="q"
+              value={q}
+              placeholder="10199422, Timewise o XA151"
+            />
+          </label>
+
+          <label class="field">
+            <span>Mostrar</span>
+            <select name="limit">
+              <option value="100" selected={limitValue === "100"}>100</option>
+              <option value="250" selected={limitValue === "250"}>250</option>
+              <option value="500" selected={limitValue === "500"}>500</option>
+              <option value="todos" selected={limitValue === "todos"}>
+                Todos
+              </option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Ordenar</span>
+            <select name="orden">
+              <option value="posicion-asc" selected={orden === "posicion-asc"}>
+                Posición menor → mayor
+              </option>
+              <option
+                value="posicion-desc"
+                selected={orden === "posicion-desc"}
+              >
+                Posición mayor → menor
+              </option>
+              <option value="estacion-asc" selected={orden === "estacion-asc"}>
+                Estación A → Z
+              </option>
+              <option
+                value="estacion-desc"
+                selected={orden === "estacion-desc"}
+              >
+                Estación Z → A
+              </option>
+              <option value="codigo-asc" selected={orden === "codigo-asc"}>
+                Código A → Z
+              </option>
+              <option value="codigo-desc" selected={orden === "codigo-desc"}>
+                Código Z → A
+              </option>
+            </select>
+          </label>
+
+          <button type="submit">Buscar</button>
+          <a class="clear-link" href="/base-skus">Limpiar</a>
+        </div>
+      </form>
+
+      <div class="filters">
+        <a
+          class={estado === "todos" ? "filter active" : "filter"}
+          href={`/base-skus?${new URLSearchParams({
+            ...(q ? { q } : {}),
+            limit: limitValue,
+            orden,
+          }).toString()}`}
+        >
+          Todos
+        </a>
+
+        <a
+          class={estado === "en-linea" ? "filter active" : "filter"}
+          href={`/base-skus?${new URLSearchParams({
+            estado: "en-linea",
+            ...(q ? { q } : {}),
+            limit: limitValue,
+            orden,
+          }).toString()}`}
+        >
+          En línea
+        </a>
+
+        <a
+          class={estado === "sin-ubicacion" ? "filter active" : "filter"}
+          href={`/base-skus?${new URLSearchParams({
+            estado: "sin-ubicacion",
+            ...(q ? { q } : {}),
+            limit: limitValue,
+            orden,
+          }).toString()}`}
+        >
+          Sin ubicación
+        </a>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Estación</th>
+              <th>Posición</th>
+              <th>Código</th>
+              <th>Descripción</th>
+              <th>Volumen</th>
+              <th>Peso</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {
+              skusVista.map((sku) => {
+                const posicionActual = sku.posiciones[0];
+                const estacion = posicionActual
+                  ? posicionActual.posicion.slice(0, 2)
+                  : "-";
+
+                return (
+                  <tr>
+                    <td>{estacion}</td>
+                    <td>{posicionActual?.posicion ?? "Sin posición"}</td>
+                    <td>{sku.codigo}</td>
+                    <td>{sku.descripcion ?? "-"}</td>
+                    <td>{sku.cubicaje ?? "-"}</td>
+                    <td>{sku.pesoBranch ?? "-"}</td>
+                    <td>
+                      <span
+                        class={posicionActual ? "badge ok" : "badge warning"}
+                      >
+                        {posicionActual ? "En línea" : "Sin ubicación"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            }
+
+            {
+              skusVista.length === 0 && (
+                <tr>
+                  <td colspan="7" class="empty">
+                    No se encontraron resultados.
+                  </td>
+                </tr>
+              )
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</AppLayout>
+
+<style>
+  .panel {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .header {
+    margin-bottom: 24px;
+  }
+
+  .kicker {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #db2777;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(34px, 5vw, 54px);
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    color: #0f172a;
+  }
+
+  .description {
+    max-width: 780px;
+    margin: 14px 0 0;
+    font-size: 17px;
+    line-height: 1.6;
+    color: #64748b;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 12px;
+    margin: 28px 0;
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .tab.active {
+    background: #0f172a;
+    color: white;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 26px;
+  }
+
+  .card {
+    padding: 22px;
+    border-radius: 24px;
+    background: white;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  }
+
+  .card span {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .card strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 36px;
+    color: #0f172a;
+  }
+
+  .table-card {
+    border-radius: 26px;
+    background: white;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+  }
+
+  .table-header {
+    padding: 22px 24px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .table-header h2 {
+    margin: 0;
+    font-size: 22px;
+    color: #0f172a;
+  }
+
+  .table-header p {
+    margin: 6px 0 0;
+    color: #64748b;
+  }
+
+  .search-bar {
+    padding: 24px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .search-row {
+    display: grid;
+    grid-template-columns: minmax(320px, 2fr) 140px 280px 130px 130px;
+    gap: 14px;
+    align-items: end;
+  }
+
+  .search-field {
+    min-width: 0;
+    max-width: 520px;
+  }
+
+  .search-field input {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .field span {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #64748b;
+  }
+
+  .search-bar input,
+  .search-bar select {
+    width: 100%;
+    height: 52px;
+    padding: 0 18px;
+    border: 1px solid #cbd5e1;
+    border-radius: 18px;
+    font-size: 15px;
+    background: white;
+    color: #0f172a;
+  }
+
+  .search-bar button,
+  .clear-link {
+    height: 52px;
+    min-width: 130px;
+    width: 130px;
+    border: none;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .search-bar button {
+    background: #0f172a;
+    color: white;
+    cursor: pointer;
+  }
+
+  .clear-link {
+    background: #e2e8f0;
+    color: #334155;
+  }
+
+  .filters {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 18px 24px 22px;
+  }
+
+  .filter {
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .filter.active {
+    background: #0f172a;
+    color: white;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th,
+  td {
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  th {
+    background: #f8fafc;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+  }
+
+  td {
+    color: #334155;
+  }
+
+  .badge {
+    display: inline-flex;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .badge.ok {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .badge.warning {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .empty {
+    text-align: center;
+    padding: 30px;
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  @media (max-width: 1300px) {
+    .search-row {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .search-field,
+    .search-field input {
+      max-width: none;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .search-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

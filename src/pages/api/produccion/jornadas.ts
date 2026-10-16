@@ -15,15 +15,30 @@ export const POST: APIRoute = async ({ request, redirect }) => {
       return new Response("Faltan datos obligatorios", { status: 400 });
     }
 
-    await prisma.jornadaLinea.create({
+    const equipoHabitual = await prisma.equipoHabitual.findMany({
+      include: {
+        estacion: true,
+        picker: true,
+      },
+    });
+
+    const jornada = await prisma.jornadaLinea.create({
       data: {
         fecha: new Date(`${fecha}T00:00:00`),
         mesOperativo,
         observacion: observacion || null,
+
+        pickersLinea: {
+          create: equipoHabitual.map((item) => ({
+            estacionId: item.estacionId,
+            pickerId: item.pickerId,
+            activo: true,
+          })),
+        },
       },
     });
 
-    return redirect("/produccion");
+    return redirect(`/produccion/${jornada.id}`);
   } catch (error) {
     console.error("ERROR CREANDO JORNADA:", error);
     return new Response("Error al crear la jornada", { status: 500 });

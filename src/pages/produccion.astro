@@ -5,15 +5,67 @@ import AppLayout from "../layouts/AppLayout.astro";
 export const prerender = false;
 
 const jornadas = await prisma.jornadaLinea.findMany({
-  orderBy: {
-    fecha: "desc",
-  },
+  orderBy: { fecha: "desc" },
   include: {
     bloques: true,
     pickersLinea: true,
     produccion: true,
   },
 });
+
+const estaciones = await prisma.estacion.findMany({
+  where: { activo: true },
+  orderBy: { codigo: "asc" },
+});
+
+const pickers = await prisma.picker.findMany({
+  where: { activo: true },
+  orderBy: { nombre: "asc" },
+});
+
+const equipoHabitual = await prisma.equipoHabitual.findMany({
+  include: {
+    estacion: true,
+    picker: true,
+  },
+});
+
+const gruposEquipo = [
+  { titulo: "Cajas", principales: ["CAJAS1"], opcionales: ["CAJAS2"] },
+  {
+    titulo: "Estaciones",
+    principales: ["XA", "XB", "XC", "XD", "XE", "XF", "XG", "XH"],
+    opcionales: [],
+  },
+  { titulo: "Balanza", principales: ["BALANZA"], opcionales: [] },
+  {
+    titulo: "Control",
+    principales: ["CONTROL1"],
+    opcionales: ["CONTROL2", "CONTROL3"],
+  },
+  {
+    titulo: "Cerradora",
+    principales: ["CERRADORA1"],
+    opcionales: ["CERRADORA2", "CERRADORA3"],
+  },
+  {
+    titulo: "Reposición",
+    principales: ["REPOSICION1"],
+    opcionales: ["REPOSICION2"],
+  },
+];
+
+const columnaIzquierda = gruposEquipo.filter((grupo) =>
+  ["Cajas", "Estaciones"].includes(grupo.titulo),
+);
+
+const columnaDerecha = gruposEquipo.filter(
+  (grupo) => !["Cajas", "Estaciones"].includes(grupo.titulo),
+);
+
+function buscarEstacion(codigo: string) {
+  return estaciones.find((e) => e.codigo === codigo);
+}
 ---
 
 <AppLayout title="Producción de línea">
@@ -54,45 +106,285 @@ const jornadas = await prisma.jornadaLinea.findMany({
     </form>
   </section>
 
-  <section class="card">
-    <h2>Jornadas creadas</h2>
+  <section class="card collapsible-card">
+    <button type="button" id="toggle-equipo" class="collapse-header">
+      <div>
+        <h2>👥 Equipo habitual</h2>
+        <p class="muted">
+          {equipoHabitual.length} puestos configurados. Se cargan automáticamente
+          al crear una nueva jornada.
+        </p>
+      </div>
 
-    {
-      jornadas.length === 0 ? (
-        <p>No hay jornadas cargadas todavía.</p>
-      ) : (
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Mes operativo</th>
-                <th>Bloques</th>
-                <th>Pickers</th>
-                <th>Producción</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {jornadas.map((jornada) => (
-                <tr>
-                  <td>{jornada.fecha.toLocaleDateString("es-AR")}</td>
-                  <td>{jornada.mesOperativo}</td>
-                  <td>{jornada.bloques.length}</td>
-                  <td>{jornada.pickersLinea.length}</td>
-                  <td>{jornada.produccion.length}</td>
-                  <td>
-                    <a href={`/produccion/${jornada.id}`}>Ver detalle</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <span id="icon-equipo">▼</span>
+    </button>
+
+    <div id="contenido-equipo" class="hidden-content">
+      <form
+        method="POST"
+        action="/api/produccion/equipo-habitual"
+        class="equipo-form"
+      >
+        <div class="equipo-columns">
+          <div class="equipo-col">
+            {
+              columnaIzquierda.map((grupo) => (
+                <div class="grupo-equipo">
+                  <div class="grupo-header">
+                    <h3>{grupo.titulo}</h3>
+
+                    {grupo.opcionales.length > 0 && (
+                      <button
+                        type="button"
+                        class="btn-toggle"
+                        data-grupo={grupo.titulo}
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+
+                  {grupo.principales.map((codigo) => {
+                    const estacion = buscarEstacion(codigo);
+                    if (!estacion) return null;
+
+                    const actual = equipoHabitual.find(
+                      (item) => item.estacionId === estacion.id,
+                    );
+
+                    return (
+                      <label class="equipo-row">
+                        <span>{estacion.codigo}</span>
+
+                        <select name={`estacion-${estacion.id}`}>
+                          <option value="">Sin asignar</option>
+
+                          {pickers.map((picker) => (
+                            <option
+                              value={picker.id}
+                              selected={actual?.pickerId === picker.id}
+                            >
+                              {picker.nombre}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+
+                  <div class="opcional hidden" data-opcional={grupo.titulo}>
+                    {grupo.opcionales.map((codigo) => {
+                      const estacion = buscarEstacion(codigo);
+                      if (!estacion) return null;
+
+                      const actual = equipoHabitual.find(
+                        (item) => item.estacionId === estacion.id,
+                      );
+
+                      return (
+                        <label class="equipo-row optional-row">
+                          <span>{estacion.codigo}</span>
+
+                          <select name={`estacion-${estacion.id}`}>
+                            <option value="">Sin asignar</option>
+
+                            {pickers.map((picker) => (
+                              <option
+                                value={picker.id}
+                                selected={actual?.pickerId === picker.id}
+                              >
+                                {picker.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+
+          <div class="equipo-col">
+            {
+              columnaDerecha.map((grupo) => (
+                <div class="grupo-equipo">
+                  <div class="grupo-header">
+                    <h3>{grupo.titulo}</h3>
+
+                    {grupo.opcionales.length > 0 && (
+                      <button
+                        type="button"
+                        class="btn-toggle"
+                        data-grupo={grupo.titulo}
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+
+                  {grupo.principales.map((codigo) => {
+                    const estacion = buscarEstacion(codigo);
+                    if (!estacion) return null;
+
+                    const actual = equipoHabitual.find(
+                      (item) => item.estacionId === estacion.id,
+                    );
+
+                    return (
+                      <label class="equipo-row">
+                        <span>{estacion.codigo}</span>
+
+                        <select name={`estacion-${estacion.id}`}>
+                          <option value="">Sin asignar</option>
+
+                          {pickers.map((picker) => (
+                            <option
+                              value={picker.id}
+                              selected={actual?.pickerId === picker.id}
+                            >
+                              {picker.nombre}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+
+                  <div class="opcional hidden" data-opcional={grupo.titulo}>
+                    {grupo.opcionales.map((codigo) => {
+                      const estacion = buscarEstacion(codigo);
+                      if (!estacion) return null;
+
+                      const actual = equipoHabitual.find(
+                        (item) => item.estacionId === estacion.id,
+                      );
+
+                      return (
+                        <label class="equipo-row optional-row">
+                          <span>{estacion.codigo}</span>
+
+                          <select name={`estacion-${estacion.id}`}>
+                            <option value="">Sin asignar</option>
+
+                            {pickers.map((picker) => (
+                              <option
+                                value={picker.id}
+                                selected={actual?.pickerId === picker.id}
+                              >
+                                {picker.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
         </div>
-      )
-    }
+
+        <button type="submit">Guardar equipo habitual</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="card collapsible-card">
+    <button type="button" id="toggle-jornadas" class="collapse-header">
+      <div>
+        <h2>📋 Jornadas creadas</h2>
+        <p class="muted">
+          {jornadas.length} jornadas registradas en el sistema.
+        </p>
+      </div>
+
+      <span id="icon-jornadas">▼</span>
+    </button>
+
+    <div id="contenido-jornadas" class="hidden-content">
+      {
+        jornadas.length === 0 ? (
+          <p>No hay jornadas cargadas todavía.</p>
+        ) : (
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Mes operativo</th>
+                  <th>Bloques</th>
+                  <th>Pickers</th>
+                  <th>Producción</th>
+                  <th />
+                </tr>
+              </thead>
+
+              <tbody>
+                {jornadas.map((jornada) => (
+                  <tr>
+                    <td>{jornada.fecha.toLocaleDateString("es-AR")}</td>
+                    <td>{jornada.mesOperativo}</td>
+                    <td>{jornada.bloques.length}</td>
+                    <td>{jornada.pickersLinea.length}</td>
+                    <td>{jornada.produccion.length}</td>
+                    <td>
+                      <a href={`/produccion/${jornada.id}`}>Ver detalle</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      }
+    </div>
   </section>
 </AppLayout>
+
+<script>
+  const botones = document.querySelectorAll(".btn-toggle");
+
+  botones.forEach((boton) => {
+    boton.addEventListener("click", (event) => {
+      event.stopPropagation();
+
+      const grupo = boton.getAttribute("data-grupo");
+      const bloque = document.querySelector(`[data-opcional="${grupo}"]`);
+
+      if (!(bloque instanceof HTMLElement)) return;
+
+      bloque.classList.toggle("hidden");
+      boton.textContent = bloque.classList.contains("hidden") ? "+" : "-";
+    });
+  });
+
+  function configurarCollapse(toggleId, contenidoId, iconId) {
+    const toggle = document.querySelector(toggleId);
+    const contenido = document.querySelector(contenidoId);
+    const icon = document.querySelector(iconId);
+
+    toggle?.addEventListener("click", () => {
+      if (!(contenido instanceof HTMLElement)) return;
+      if (!(icon instanceof HTMLElement)) return;
+
+      contenido.classList.toggle("expanded");
+
+      const abierto = contenido.classList.contains("expanded");
+      icon.textContent = abierto ? "▲" : "▼";
+    });
+  }
+
+  configurarCollapse("#toggle-equipo", "#contenido-equipo", "#icon-equipo");
+  configurarCollapse(
+    "#toggle-jornadas",
+    "#contenido-jornadas",
+    "#icon-jornadas",
+  );
+</script>
+
 <style>
   body {
     margin: 0;
@@ -154,7 +446,7 @@ const jornadas = await prisma.jornadaLinea.findMany({
     min-height: 90px;
   }
 
-  button {
+  button:not(.btn-toggle):not(.collapse-header) {
     width: fit-content;
     border: 0;
     border-radius: 999px;
@@ -167,6 +459,7 @@ const jornadas = await prisma.jornadaLinea.findMany({
 
   .table-wrap {
     overflow-x: auto;
+    margin-top: 18px;
   }
 
   table {
@@ -190,5 +483,161 @@ const jornadas = await prisma.jornadaLinea.findMany({
     color: #0f3d75;
     font-weight: 800;
     text-decoration: none;
+  }
+
+  .muted {
+    color: #667085;
+    font-weight: 600;
+    margin: 6px 0 0;
+  }
+
+  .collapsible-card {
+    overflow: hidden;
+  }
+
+  .collapse-header {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+  }
+
+  .collapse-header h2 {
+    margin: 0;
+  }
+
+  #icon-equipo,
+  #icon-jornadas {
+    font-size: 22px;
+    font-weight: 900;
+    color: #0f172a;
+  }
+
+  .hidden-content {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+      max-height 0.35s ease,
+      opacity 0.25s ease;
+  }
+
+  .hidden-content.expanded {
+    max-height: 3000px;
+    opacity: 1;
+    padding-top: 20px;
+  }
+
+  .equipo-form {
+    display: grid;
+    gap: 16px;
+  }
+
+  .equipo-columns {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 18px;
+    align-items: start;
+  }
+
+  .equipo-col {
+    display: grid;
+    gap: 16px;
+  }
+
+  .grupo-equipo {
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 14px 16px;
+    background: #f8fafc;
+  }
+
+  .grupo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .grupo-header h3 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #0f3d75;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .btn-toggle {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: #0f172a;
+    color: white;
+    font-size: 18px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .equipo-row {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .grupo-equipo .opcional {
+    display: grid;
+    gap: 8px;
+  }
+
+  .equipo-row span {
+    font-size: 0.85rem;
+    font-weight: 900;
+    color: #0f3d75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .equipo-row select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d9e2ef;
+    border-radius: 12px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 700;
+    background: white;
+    height: 40px;
+  }
+
+  .optional-row {
+    opacity: 0.95;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .equipo-form > button {
+    justify-self: end;
+  }
+
+  @media (max-width: 1000px) {
+    .equipo-columns {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

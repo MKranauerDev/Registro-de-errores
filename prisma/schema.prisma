@@ -6,6 +6,13 @@ datasource db {
   provider = "postgresql"
 }
 
+enum RolUsuario {
+  ADMIN
+  SUPERVISOR
+  CONTROLADOR
+  CONSULTA
+}
+
 enum ResultadoControl {
   FALTANTE
   SOBRANTE
@@ -13,21 +20,25 @@ enum ResultadoControl {
 }
 
 model Picker {
-  id            Int                       @id @default(autoincrement())
-  nombre        String                    @unique
-  activo        Boolean                   @default(true)
-  relevamientos Relevamiento[]
-  asignaciones  EstacionPickerHistorial[]
-  jornadas      PickerJornada[]
+  id                Int                       @id @default(autoincrement())
+  nombre            String                    @unique
+  activo            Boolean                   @default(true)
+  relevamientos     Relevamiento[]
+  asignaciones      EstacionPickerHistorial[]
+  jornadas          PickerJornada[]
+  equipoHabitual    EquipoHabitual[]
+  relevamientoItems RelevamientoItem[]
 }
 
 model Estacion {
-  id            Int                       @id @default(autoincrement())
-  codigo        String                    @unique
-  activo        Boolean                   @default(true)
-  relevamientos Relevamiento[]
-  asignaciones  EstacionPickerHistorial[]
-  jornadas      PickerJornada[]
+  id                Int                       @id @default(autoincrement())
+  codigo            String                    @unique
+  activo            Boolean                   @default(true)
+  relevamientos     Relevamiento[]
+  asignaciones      EstacionPickerHistorial[]
+  jornadas          PickerJornada[]
+  equipoHabitual    EquipoHabitual?
+  relevamientoItems RelevamientoItem[]
 }
 
 model EstacionPickerHistorial {
@@ -48,12 +59,14 @@ model EstacionPickerHistorial {
 }
 
 model Controlador {
-  id            Int            @id @default(autoincrement())
-  nombre        String         @unique
-  activo        Boolean        @default(true)
+  id            Int                @id @default(autoincrement())
+  nombre        String             @unique
+  activo        Boolean            @default(true)
   relevamientos Relevamiento[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  casos         RelevamientoCaso[]
+  usuarios      Usuario[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 }
 
 model Sku {
@@ -75,8 +88,9 @@ model Sku {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  relevamientos Relevamiento[]
-  posiciones    SkuPosicionHistorial[]
+  relevamientos     Relevamiento[]
+  posiciones        SkuPosicionHistorial[]
+  relevamientoItems RelevamientoItem[]
 }
 
 enum EstadoSkuLinea {
@@ -207,4 +221,106 @@ model ProduccionTransporte {
   updatedAt DateTime @updatedAt
 
   @@unique([jornadaId, transporte])
+}
+
+model EquipoHabitual {
+  id Int @id @default(autoincrement())
+
+  estacionId Int @unique
+  pickerId   Int
+
+  estacion Estacion @relation(fields: [estacionId], references: [id])
+
+  picker Picker @relation(fields: [pickerId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+}
+
+model RelevamientoCaso {
+  id             Int      @id @default(autoincrement())
+  fechaCarga     DateTime @default(now())
+  fechaHoraError DateTime @default(now())
+
+  mesOperativo String
+  remito       String
+  cbi          String
+  observacion  String?
+
+  controladorId Int
+  controlador   Controlador @relation(fields: [controladorId], references: [id])
+
+  items RelevamientoItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RelevamientoItem {
+  id Int @id @default(autoincrement())
+
+  casoId     Int
+  skuId      Int
+  estacionId Int
+  pickerId   Int
+
+  resultadoControl ResultadoControl
+  cantidad         Int              @default(1)
+
+  posicionSkuAlMomento String?
+  estadoSkuAlMomento   EstadoSkuLinea?
+  pickerAlMomento      String?
+
+  caso     RelevamientoCaso @relation(fields: [casoId], references: [id])
+  sku      Sku              @relation(fields: [skuId], references: [id])
+  estacion Estacion         @relation(fields: [estacionId], references: [id])
+  picker   Picker           @relation(fields: [pickerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Usuario {
+
+  id Int @id @default(autoincrement())
+
+  nombre String
+
+  email String @unique
+
+  password String
+
+  rol RolUsuario @default(CONTROLADOR)
+
+  activo Boolean @default(true)
+
+  controladorId Int?
+
+  controlador Controlador? @relation(fields: [controladorId], references: [id])
+
+  ultimoAcceso DateTime?
+
+  debeCambiarPassword Boolean @default(true)
+
+  intentosFallidos Int @default(0)
+
+  bloqueadoHasta DateTime?
+
+  auditorias Auditoria[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+}
+
+model Auditoria {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  modulo    String
+  accion    String
+  detalle   String?
+  fecha     DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
 }

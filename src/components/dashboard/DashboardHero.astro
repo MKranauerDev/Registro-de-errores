@@ -1,0 +1,93 @@
+---
+const ahora = new Date();
+
+const saludo =
+  ahora.getHours() < 12
+    ? "Buen día"
+    : ahora.getHours() < 19
+      ? "Buenas tardes"
+      : "Buenas noches";
+
+const fecha = ahora.toLocaleDateString("es-AR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+
+const hora = ahora.toLocaleTimeString("es-AR", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+---
+
+<section class="hero">
+  <div>
+    <p class="saludo">
+      👋 {saludo}, Matías
+    </p>
+
+    <p class="fecha">
+      {fecha} · {hora}
+    </p>
+
+    <p class="kicker">CENTRO DE CONTROL OPERATIVO</p>
+
+    <h1>Centro de Control Operativo</h1>
+
+    <p class="description">Resumen ejecutivo de la operación.</p>
+  </div>
+</section>
+
+<style>
+  .hero {
+    margin-bottom: 36px;
+  }
+
+  .saludo {
+    margin: 0;
+
+    font-size: 26px;
+
+    font-weight: 900;
+  }
+
+  .fecha {
+    margin: 6px 0 18px;
+
+    color: #64748b;
+
+    font-weight: 700;
+
+    text-transform: capitalize;
+  }
+
+  .kicker {
+    margin: 0 0 10px;
+
+    font-size: 12px;
+
+    font-weight: 900;
+
+    letter-spacing: 0.25em;
+
+    color: #db2777;
+  }
+
+  h1 {
+    margin: 0;
+
+    font-size: 56px;
+
+    line-height: 1;
+
+    letter-spacing: -0.05em;
+  }
+
+  .description {
+    margin-top: 14px;
+
+    font-size: 18px;
+
+    color: #64748b;
+  }
+</style>

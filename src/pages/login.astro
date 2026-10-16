@@ -1,0 +1,184 @@
+---
+export const prerender = false;
+
+import MainLayout from "../layouts/MainLayout.astro";
+
+const error = Astro.url.searchParams.get("error");
+---
+
+<MainLayout title="Login · Centro de Control Operativo">
+  <main class="login-page">
+    <section class="login-card">
+      <p class="kicker">MARY KAY · CCO</p>
+
+      <h1>Centro de Control Operativo</h1>
+
+      <p class="description">Ingresá con tu usuario para acceder al sistema.</p>
+
+      {
+        error === "credenciales" && (
+          <div class="error-message">Email o contraseña incorrectos.</div>
+        )
+      }
+
+      {
+        error === "inactivo" && (
+          <div class="error-message">Esta cuenta se encuentra desactivada.</div>
+        )
+      }
+
+      {
+        error === "bloqueado" && (
+          <div class="error-message">
+            Usuario bloqueado temporalmente por intentos fallidos.
+          </div>
+        )
+      }
+
+      <form method="POST" action="/api/auth/login" class="form">
+        <label>
+          Email
+          <input
+            type="email"
+            name="email"
+            placeholder="email@acceso.com"
+            required
+          />
+        </label>
+
+        <label>
+          Contraseña
+          <input
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            required
+          />
+        </label>
+
+        <button type="submit">Ingresar</button>
+      </form>
+    </section>
+  </main>
+</MainLayout>
+
+<style>
+  :global(body) {
+    margin: 0;
+    font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    background: #f3f4f6;
+    color: #111827;
+  }
+
+  .login-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background:
+      radial-gradient(
+        circle at top left,
+        rgba(219, 39, 119, 0.18),
+        transparent 34%
+      ),
+      linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
+  }
+
+  .login-card {
+    width: min(440px, 100%);
+    padding: 34px;
+    border-radius: 30px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+  }
+
+  .kicker {
+    margin: 0 0 12px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #db2777;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 38px;
+    line-height: 1;
+    letter-spacing: -0.05em;
+    color: #0f172a;
+  }
+
+  .description {
+    margin: 14px 0 28px;
+    color: #64748b;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+
+  .form {
+    display: grid;
+    gap: 18px;
+  }
+
+  label {
+    display: grid;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 800;
+    color: #334155;
+  }
+
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1;
+    border-radius: 16px;
+    padding: 14px 15px;
+    font: inherit;
+    font-weight: 700;
+    color: #0f172a;
+    background: #f8fafc;
+    outline: none;
+  }
+
+  input:focus {
+    border-color: #db2777;
+    background: white;
+    box-shadow: 0 0 0 4px rgba(219, 39, 119, 0.12);
+  }
+
+  button {
+    margin-top: 8px;
+    border: 0;
+    border-radius: 999px;
+    padding: 15px 24px;
+    font: inherit;
+    font-weight: 900;
+    color: white;
+    background: linear-gradient(135deg, #0f172a, #334155);
+    cursor: pointer;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.24);
+  }
+
+  button:hover {
+    background: linear-gradient(135deg, #db2777, #be185d);
+  }
+
+  .error-message {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-weight: 900;
+  }
+</style>

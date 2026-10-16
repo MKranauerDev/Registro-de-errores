@@ -1,165 +1,904 @@
 ---
-import MainLayout from "../layouts/MainLayout.astro";
+export const prerender = false;
+
+import AppLayout from "../layouts/AppLayout.astro";
+import DashboardHero from "../components/dashboard/DashboardHero.astro";
+import { prisma } from "../lib/prisma";
+
+const totalCasos = await prisma.relevamientoCaso.count();
+
+const totalFaltantes = await prisma.relevamientoItem.count({
+  where: { resultadoControl: "FALTANTE" },
+});
+
+const totalSobrantes = await prisma.relevamientoItem.count({
+  where: { resultadoControl: "SOBRANTE" },
+});
+
+const totalSinError = await prisma.relevamientoItem.count({
+  where: { resultadoControl: "SIN_ERROR_BASE" },
+});
+
+const remitosDistintos = await prisma.relevamientoCaso.findMany({
+  distinct: ["remito"],
+  select: { remito: true },
+});
+
+const skusDistintos = await prisma.relevamientoItem.findMany({
+  distinct: ["skuId"],
+  select: { skuId: true },
+});
+
+const ultimosCasos = await prisma.relevamientoCaso.findMany({
+  take: 6,
+  orderBy: { fechaCarga: "desc" },
+  include: {
+    controlador: true,
+    items: {
+      include: {
+        sku: true,
+        picker: true,
+        estacion: true,
+      },
+    },
+  },
+});
+const topEstacionesRaw = await prisma.relevamientoItem.groupBy({
+  by: ["estacionId"],
+  _count: {
+    id: true,
+  },
+  orderBy: {
+    _count: {
+      id: "desc",
+    },
+  },
+  take: 3,
+});
+
+const topPickersRaw = await prisma.relevamientoItem.groupBy({
+  by: ["pickerId"],
+  _count: {
+    id: true,
+  },
+  orderBy: {
+    _count: {
+      id: "desc",
+    },
+  },
+  take: 3,
+});
+
+const topSkusRaw = await prisma.relevamientoItem.groupBy({
+  by: ["skuId"],
+  _count: {
+    id: true,
+  },
+  orderBy: {
+    _count: {
+      id: "desc",
+    },
+  },
+  take: 3,
+});
+
+const estacionesTop = await prisma.estacion.findMany({
+  where: {
+    id: {
+      in: topEstacionesRaw.map((item) => item.estacionId),
+    },
+  },
+});
+
+const pickersTop = await prisma.picker.findMany({
+  where: {
+    id: {
+      in: topPickersRaw.map((item) => item.pickerId),
+    },
+  },
+});
+
+const skusTop = await prisma.sku.findMany({
+  where: {
+    id: {
+      in: topSkusRaw.map((item) => item.skuId),
+    },
+  },
+});
+
+const topEstaciones = topEstacionesRaw.map((item) => ({
+  nombre:
+    estacionesTop.find((estacion) => estacion.id === item.estacionId)?.codigo ??
+    "-",
+  total: item._count.id,
+}));
+
+const topPickers = topPickersRaw.map((item) => ({
+  nombre:
+    pickersTop.find((picker) => picker.id === item.pickerId)?.nombre ?? "-",
+  total: item._count.id,
+}));
+
+const topSkus = topSkusRaw.map((item) => {
+  const sku = skusTop.find((sku) => sku.id === item.skuId);
+
+  return {
+    nombre: sku?.codigo ?? "-",
+    descripcion: sku?.descripcion ?? "",
+    total: item._count.id,
+  };
+});
+
+const hoy = new Date();
+
+const inicioDia = new Date(hoy);
+
+inicioDia.setHours(0, 0, 0, 0);
+
+const finDia = new Date(hoy);
+
+finDia.setHours(23, 59, 59, 999);
+const jornadaHoy = await prisma.jornadaLinea.findFirst({
+  where: {
+    fecha: {
+      gte: inicioDia,
+      lte: finDia,
+    },
+  },
+
+  include: {
+    bloques: true,
+
+    pickersLinea: true,
+
+    produccion: true,
+  },
+});
+let totalPaquetes = 0;
+
+let totalPallets = 0;
+
+let horasProduccion = 0;
+
+let horasHombre = 0;
+
+let eficiencia = 0;
+if (jornadaHoy) {
+  totalPaquetes = jornadaHoy.produccion.reduce(
+    (acc, item) => acc + item.cantidad,
+
+    0,
+  );
+
+  totalPallets = jornadaHoy.produccion.reduce(
+    (acc, item) => acc + (item.pallets ?? 0),
+
+    0,
+  );
+
+  horasProduccion = jornadaHoy.bloques
+    .filter((bloque) => bloque.tipo === "PRODUCCION")
+    .reduce((acc, bloque) => {
+      if (!bloque.horaInicio || !bloque.horaFin) {
+        return acc;
+      }
+
+      return (
+        acc + (bloque.horaFin.getTime() - bloque.horaInicio.getTime()) / 3600000
+      );
+    }, 0);
+
+  horasHombre = horasProduccion * jornadaHoy.pickersLinea.length;
+
+  eficiencia = horasHombre > 0 ? totalPaquetes / horasHombre : 0;
+}
 ---
 
-<MainLayout title="Sistema de relevamiento de errores de pickeo">
-  <main class="home-page">
-    <section class="hero">
-      <div class="hero-content">
-        <p class="kicker">Warehouse · Control operativo</p>
+<AppLayout title="Inicio">
+  <section class="dashboard">
+    <DashboardHero />
 
-        <h1>Sistema de relevamiento de errores de pickeo</h1>
+    <section class="cards">
+      <article class="metric-card primary">
+        <span>Total casos</span>
+        <strong>{totalCasos}</strong>
+      </article>
 
-        <p class="description">
-          Plataforma interna para registrar faltantes, sobrantes y casos sin
-          error real por base mal cargada, manteniendo trazabilidad del proceso.
-        </p>
+      <article class="metric-card">
+        <span>Faltantes</span>
+        <strong>{totalFaltantes}</strong>
+      </article>
 
-        <div class="actions">
-          <a href="/carga" class="btn-primary">Ir a la carga</a>
+      <article class="metric-card">
+        <span>Sobrantes</span>
+        <strong>{totalSobrantes}</strong>
+      </article>
+
+      <article class="metric-card">
+        <span>Sin error/base</span>
+        <strong>{totalSinError}</strong>
+      </article>
+
+      <article class="metric-card">
+        <span>Remitos afectados</span>
+        <strong>{remitosDistintos.length}</strong>
+      </article>
+
+      <article class="metric-card">
+        <span>SKUs afectados</span>
+        <strong>{skusDistintos.length}</strong>
+      </article>
+    </section>
+    <section class="rankings-grid">
+      <article class="ranking-card">
+        <h2>🏭 TOP 3 Estaciones</h2>
+        <p>Estaciones con mayor cantidad de errores.</p>
+
+        <div class="ranking-list">
+          {
+            topEstaciones.length === 0 ? (
+              <span class="empty-mini">Sin datos todavía.</span>
+            ) : (
+              topEstaciones.map((item, index) => (
+                <div class="ranking-row">
+                  <div class="ranking-left">
+                    <div
+                      class={`ranking-dot ${
+                        index === 0
+                          ? "rojo"
+                          : index === 1
+                            ? "amarillo"
+                            : "verde"
+                      }`}
+                    />
+
+                    <strong>{item.nombre}</strong>
+                  </div>
+
+                  <span>{item.total}</span>
+                </div>
+              ))
+            )
+          }
+        </div>
+      </article>
+
+      <article class="ranking-card">
+        <h2>👤 TOP 3 Pickers</h2>
+        <p>Colaboradores con más errores asociados.</p>
+
+        <div class="ranking-list">
+          {
+            topPickers.length === 0 ? (
+              <span class="empty-mini">Sin datos todavía.</span>
+            ) : (
+              topPickers.map((item, index) => (
+                <div class="ranking-row">
+                  <div class="ranking-left">
+                    <div
+                      class={`ranking-dot ${
+                        index === 0
+                          ? "rojo"
+                          : index === 1
+                            ? "amarillo"
+                            : "verde"
+                      }`}
+                    />
+
+                    <strong>{item.nombre}</strong>
+                  </div>
+
+                  <span>{item.total}</span>
+                </div>
+              ))
+            )
+          }
+        </div>
+      </article>
+
+      <article class="ranking-card">
+        <h2>📦 TOP 3 SKU</h2>
+        <p>Productos con mayor recurrencia.</p>
+
+        <div class="ranking-list">
+          {
+            topSkus.length === 0 ? (
+              <span class="empty-mini">Sin datos todavía.</span>
+            ) : (
+              topSkus.map((item, index) => (
+                <div class="ranking-row">
+                  <div class="ranking-left">
+                    <div
+                      class={`ranking-dot ${
+                        index === 0
+                          ? "rojo"
+                          : index === 1
+                            ? "amarillo"
+                            : "verde"
+                      }`}
+                    />
+
+                    <strong>{item.nombre}</strong>
+                  </div>
+
+                  <span>{item.total}</span>
+                </div>
+              ))
+            )
+          }
+        </div>
+      </article>
+    </section>
+    <section class="operacion-dia">
+      <div class="operacion-header">
+        <h2>🏭 Operación del día</h2>
+
+        <span class="operacion-fecha">
+          {
+            jornadaHoy
+              ? jornadaHoy.fecha.toLocaleDateString(
+                  "es-AR",
+
+                  {
+                    weekday: "long",
+
+                    day: "numeric",
+
+                    month: "long",
+                  },
+                )
+              : "Sin jornada"
+          }
+        </span>
+      </div>
+
+      <div class="operacion-grid">
+        <div class="operacion-item">
+          <small>👥 Pickers</small>
+
+          <strong>
+            {jornadaHoy?.pickersLinea.length ?? 0}
+          </strong>
+        </div>
+
+        <div class="operacion-item">
+          <small>📦 Paquetes</small>
+
+          <strong>{totalPaquetes}</strong>
+        </div>
+
+        <div class="operacion-item">
+          <small>🪵 Pallets</small>
+
+          <strong>{totalPallets}</strong>
+        </div>
+
+        <div class="operacion-item">
+          <small>⏱ Hs producción</small>
+
+          <strong>
+            {horasProduccion.toFixed(1)}
+          </strong>
+        </div>
+
+        <div class="operacion-item">
+          <small>👨‍🏭 Hs hombre</small>
+
+          <strong>
+            {horasHombre.toFixed(1)}
+          </strong>
+        </div>
+
+        <div
+          class={`operacion-item eficiencia ${
+            eficiencia === 0
+              ? "gris"
+              : eficiencia < 15
+                ? "rojo"
+                : eficiencia < 25
+                  ? "amarillo"
+                  : "verde"
+          }`}
+        >
+          <small>📈 Eficiencia</small>
+
+          <strong>
+            {eficiencia.toFixed(1)}
+          </strong>
         </div>
       </div>
-
-      <div class="hero-card">
-        <p class="card-label">Estado del sistema</p>
-        <h2>Base operativa activa</h2>
-        <p>
-          Formularios conectados a PostgreSQL mediante Prisma para registrar y
-          consultar información de forma estructurada.
-        </p>
-      </div>
     </section>
-  </main>
+    <section class="panel-card">
+      <div class="panel-header">
+        <div>
+          <h2>Actividad reciente</h2>
+          <p>Últimos relevamientos registrados.</p>
+        </div>
 
-  <style>
-    :global(body) {
-      margin: 0;
-      font-family:
-        Inter,
-        ui-sans-serif,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-      background: #f3f4f6;
-      color: #111827;
-    }
+        <a href="/carga" class="quick-link"> + Registrar error </a>
+      </div>
 
-    .home-page {
-      min-height: 100vh;
-      padding: 48px 20px;
-      background:
-        radial-gradient(
-          circle at top left,
-          rgba(219, 39, 119, 0.14),
-          transparent 32%
-        ),
-        linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
-    }
+      {
+        ultimosCasos.length === 0 ? (
+          <p class="empty">Todavía no hay casos cargados.</p>
+        ) : (
+          <div class="cases-list">
+            {ultimosCasos.map((caso) => (
+              <article class="case-row">
+                <div>
+                  <span class="case-date">
+                    {caso.fechaCarga.toLocaleDateString("es-AR")} ·{" "}
+                    {caso.fechaCarga.toLocaleTimeString("es-AR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
 
-    .hero {
-      max-width: 1120px;
-      min-height: calc(100vh - 96px);
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      align-items: center;
-      gap: 40px;
-    }
+                  <strong>
+                    Remito {caso.remito} · CBI {caso.cbi}
+                  </strong>
 
-    .kicker {
-      margin: 0 0 14px;
-      font-size: 12px;
-      font-weight: 900;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #db2777;
-    }
+                  <p>
+                    {caso.items.length} producto
+                    {caso.items.length === 1 ? "" : "s"} involucrado
+                    {caso.items.length === 1 ? "" : "s"} · Controlado por{" "}
+                    {caso.controlador?.nombre ?? "-"}
+                  </p>
+                </div>
 
-    h1 {
-      max-width: 850px;
-      margin: 0;
-      font-size: clamp(42px, 6vw, 76px);
-      line-height: 0.95;
-      letter-spacing: -0.06em;
-      color: #0f172a;
-    }
+                <div class="case-items">
+                  {caso.items.slice(0, 3).map((item) => (
+                    <span class="mini-badge">
+                      {item.resultadoControl} · {item.sku.codigo}
+                    </span>
+                  ))}
 
-    .description {
-      max-width: 720px;
-      margin: 24px 0 0;
-      font-size: 19px;
-      line-height: 1.7;
-      color: #64748b;
-    }
-
-    .actions {
-      margin-top: 34px;
-    }
-
-    .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 48px;
-      padding: 0 24px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #0f172a, #334155);
-      color: white;
-      font-weight: 900;
-      text-decoration: none;
-      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.22);
-      transition: 0.2s ease;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      background: linear-gradient(135deg, #db2777, #be185d);
-      box-shadow: 0 18px 38px rgba(219, 39, 119, 0.3);
-    }
-
-    .hero-card {
-      border-radius: 30px;
-      padding: 30px;
-      background: rgba(255, 255, 255, 0.9);
-      border: 1px solid rgba(226, 232, 240, 0.9);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
-      backdrop-filter: blur(12px);
-    }
-
-    .card-label {
-      margin: 0 0 12px;
-      font-size: 12px;
-      font-weight: 900;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #db2777;
-    }
-
-    .hero-card h2 {
-      margin: 0;
-      font-size: 28px;
-      color: #0f172a;
-    }
-
-    .hero-card p:last-child {
-      margin: 14px 0 0;
-      line-height: 1.6;
-      color: #64748b;
-      font-weight: 600;
-    }
-
-    @media (max-width: 860px) {
-      .hero {
-        grid-template-columns: 1fr;
-        align-items: start;
-        padding-top: 40px;
+                  {caso.items.length > 3 && (
+                    <span class="mini-badge muted-badge">
+                      +{caso.items.length - 3}
+                    </span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )
       }
+    </section>
+  </section>
+</AppLayout>
 
-      .hero-card {
-        max-width: 520px;
-      }
+<style>
+  .dashboard {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 26px;
+  }
+
+  .metric-card {
+    min-height: 120px;
+    padding: 20px;
+    border-radius: 24px;
+    background: white;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .metric-card.primary {
+    background: linear-gradient(135deg, #0f172a, #334155);
+  }
+
+  .metric-card span {
+    font-size: 13px;
+    font-weight: 800;
+    color: #64748b;
+  }
+
+  .metric-card strong {
+    font-size: 40px;
+    line-height: 1;
+    font-weight: 950;
+    color: #0f172a;
+  }
+
+  .metric-card.primary span,
+  .metric-card.primary strong {
+    color: white;
+  }
+
+  .panel-card {
+    padding: 24px;
+    border-radius: 26px;
+    background: white;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .panel-header h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #0f172a;
+  }
+
+  .panel-header p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .quick-link {
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    min-height: 48px;
+
+    padding: 0 22px;
+
+    border-radius: 999px;
+
+    background: linear-gradient(135deg, #db2777, #be185d);
+
+    color: white;
+
+    font-weight: 900;
+
+    text-decoration: none;
+
+    white-space: nowrap;
+
+    transition: 0.2s ease;
+
+    box-shadow: 0 14px 28px rgba(219, 39, 119, 0.28);
+  }
+
+  .quick-link:hover {
+    transform: translateY(-2px);
+  }
+
+  .cases-list {
+    display: grid;
+    gap: 14px;
+  }
+
+  .case-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 18px;
+    align-items: center;
+    padding: 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #f8fafc;
+  }
+
+  .case-date {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #db2777;
+  }
+
+  .case-row strong {
+    display: block;
+    color: #0f172a;
+    font-size: 16px;
+  }
+
+  .case-row p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .case-items {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .mini-badge {
+    display: inline-flex;
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .muted-badge {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .empty {
+    color: #64748b;
+    font-weight: 700;
+  }
+  .dashboard-actions {
+    display: flex;
+    gap: 16px;
+    margin: 0 0 28px;
+  }
+
+  .action-btn {
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    height: 50px;
+
+    padding: 0 22px;
+
+    border-radius: 999px;
+
+    background: white;
+
+    text-decoration: none;
+
+    font-weight: 900;
+
+    color: #0f172a;
+
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+
+    transition: 0.2s ease;
+  }
+
+  .action-btn:hover {
+    transform: translateY(-2px);
+  }
+
+  .action-btn.primary {
+    background: linear-gradient(135deg, #db2777, #be185d);
+
+    color: white;
+  }
+
+  .rankings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 26px;
+  }
+
+  .ranking-card {
+    padding: 22px;
+    border-radius: 26px;
+    background: white;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .ranking-card h2 {
+    margin: 0;
+    font-size: 22px;
+    color: #0f172a;
+  }
+
+  .ranking-card p {
+    margin: 6px 0 18px;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .ranking-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ranking-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 14px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .ranking-row strong {
+    color: #0f172a;
+    font-size: 15px;
+  }
+
+  .ranking-row span {
+    min-width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+  }
+
+  .sku-row small {
+    display: block;
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .empty-mini {
+    color: #64748b;
+    font-weight: 700;
+  }
+  .ranking-left {
+    display: flex;
+
+    align-items: center;
+
+    gap: 12px;
+  }
+
+  .ranking-left small {
+    font-size: 20px;
+  }
+  .operacion-dia {
+    margin-bottom: 26px;
+
+    padding: 24px;
+
+    border-radius: 26px;
+
+    background: white;
+
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .operacion-header {
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    margin-bottom: 24px;
+  }
+
+  .operacion-grid {
+    display: grid;
+
+    grid-template-columns: repeat(6, 1fr);
+
+    gap: 16px;
+  }
+
+  .operacion-item {
+    padding: 20px;
+
+    border-radius: 18px;
+
+    background: #f8fafc;
+  }
+
+  .operacion-item small {
+    display: block;
+
+    margin-bottom: 12px;
+
+    font-weight: 800;
+
+    color: #64748b;
+  }
+
+  .operacion-item strong {
+    font-size: 34px;
+  }
+
+  .gris {
+    background: #f1f5f9;
+  }
+
+  .rojo {
+    background: #fee2e2;
+  }
+
+  .amarillo {
+    background: #fef9c3;
+  }
+
+  .verde {
+    background: #dcfce7;
+  }
+  .operacion-fecha {
+    font-size: 16px;
+
+    font-weight: 800;
+
+    color: #64748b;
+
+    text-transform: capitalize;
+  }
+
+  .ranking-dot {
+    width: 18px;
+
+    height: 18px;
+
+    border-radius: 999px;
+
+    flex-shrink: 0;
+  }
+
+  .rojo {
+    background: #ef4444;
+
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  }
+
+  .amarillo {
+    background: #facc15;
+
+    box-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+  }
+
+  .verde {
+    background: #22c55e;
+
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+  }
+  @media (max-width: 1100px) {
+    .operacion-grid {
+      grid-template-columns: repeat(3, 1fr);
     }
-  </style>
-</MainLayout>
+  }
+
+  @media (max-width: 1200px) {
+    .cards {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 780px) {
+    .cards,
+    .case-row {
+      grid-template-columns: 1fr;
+    }
+
+    .panel-header {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .case-items {
+      justify-content: flex-start;
+    }
+    .dashboard-actions {
+      flex-direction: column;
+    }
+    .rankings-grid {
+      grid-template-columns: 1fr;
+    }
+    .operacion-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

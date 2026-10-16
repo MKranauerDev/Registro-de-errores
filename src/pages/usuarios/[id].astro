@@ -1,0 +1,581 @@
+---
+export const prerender = false;
+
+import AppLayout from "../../layouts/AppLayout.astro";
+import { prisma } from "../../lib/prisma";
+
+const id = Number(Astro.params.id);
+
+if (!id || Number.isNaN(id)) {
+  return Astro.redirect("/usuarios");
+}
+
+const usuario = await prisma.usuario.findUnique({
+  where: { id },
+  include: {
+    controlador: true,
+  },
+});
+
+if (!usuario) {
+  return Astro.redirect("/usuarios");
+}
+
+const ok = Astro.url.searchParams.get("ok");
+const passwordTemporal = Astro.url.searchParams.get("temporal");
+
+const controladores = await prisma.controlador.findMany({
+  where: { activo: true },
+  orderBy: { nombre: "asc" },
+});
+---
+
+<AppLayout title={`Editar usuario · ${usuario.nombre}`}>
+  <section class="page">
+    <div class="header">
+      <p class="kicker">Administración</p>
+      <h1>Editar usuario</h1>
+      <p>Gestioná datos, rol, estado y controlador asociado.</p>
+    </div>
+
+    {
+      ok === "actualizado" && (
+        <div class="success-message">✅ Usuario actualizado correctamente.</div>
+      )
+    }
+
+    {
+      ok === "activado" && (
+        <div class="success-message">✅ Usuario activado correctamente.</div>
+      )
+    }
+
+    {
+      ok === "desactivado" && (
+        <div class="success-message">✅ Usuario desactivado correctamente.</div>
+      )
+    }
+    {
+      ok === "password" && (
+        <div class="success-message">
+          🔑 Contraseña restablecida correctamente.
+          {passwordTemporal && (
+            <>
+              <br />
+              <div class="password-box">
+                <span>Contraseña temporal</span>
+
+                <strong>{passwordTemporal}</strong>
+              </div>
+              <p class="password-warning">
+                ⚠️ Entregar esta contraseña al usuario. Será obligatoria su
+                modificación en el próximo ingreso.
+              </p>
+              <br />
+              ⚠️ El usuario deberá cambiarla en su próximo ingreso.
+            </>
+          )}
+        </div>
+      )
+    }
+    <section class="summary-card">
+      <div>
+        <span class="avatar">👤</span>
+      </div>
+
+      <div class="summary-content">
+        <h2>{usuario.nombre}</h2>
+        <p>{usuario.email}</p>
+
+        <div class="summary-row">
+          <div class="security-info">
+            <div>
+              <strong>Último acceso</strong>
+              <p>
+                {
+                  usuario.ultimoAcceso
+                    ? new Date(usuario.ultimoAcceso).toLocaleString("es-AR")
+                    : "Nunca"
+                }
+              </p>
+            </div>
+
+            <div>
+              <strong>Intentos fallidos</strong>
+              <p>{usuario.intentosFallidos}</p>
+            </div>
+          </div>
+
+          <div class="summary-badges">
+            <span class="badge role">{usuario.rol}</span>
+
+            <span class={usuario.activo ? "badge ok" : "badge off"}>
+              {usuario.activo ? "Activo" : "Inactivo"}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <form
+      action={`/api/usuarios/${usuario.id}/actualizar`}
+      method="POST"
+      class="card"
+    >
+      <div class="grid">
+        <div class="field">
+          <label>Nombre</label>
+          <input type="text" name="nombre" value={usuario.nombre} required />
+        </div>
+
+        <div class="field">
+          <label>Email</label>
+          <input type="email" name="email" value={usuario.email} required />
+        </div>
+
+        <div class="field">
+          <label>Rol</label>
+
+          <select name="rol" required>
+            <option value="ADMIN" selected={usuario.rol === "ADMIN"}
+              >ADMIN</option
+            >
+            <option value="SUPERVISOR" selected={usuario.rol === "SUPERVISOR"}
+              >SUPERVISOR</option
+            >
+            <option value="CONTROLADOR" selected={usuario.rol === "CONTROLADOR"}
+              >CONTROLADOR</option
+            >
+            <option value="CONSULTA" selected={usuario.rol === "CONSULTA"}
+              >CONSULTA</option
+            >
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Controlador asociado</label>
+
+          <select name="controladorId">
+            <option value="">Sin asignar</option>
+
+            {
+              controladores.map((controlador) => (
+                <option
+                  value={controlador.id}
+                  selected={usuario.controladorId === controlador.id}
+                >
+                  {controlador.nombre}
+                </option>
+              ))
+            }
+          </select>
+        </div>
+
+        <div class="field checkbox">
+          <label>
+            <input type="checkbox" name="activo" checked={usuario.activo} />
+            Usuario activo
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <a href="/usuarios" class="btn-secondary">Volver</a>
+        <button type="submit" class="btn-primary">Guardar cambios</button>
+      </div>
+    </form>
+
+    <section class="security-card">
+      <div class="security-copy">
+        <span class="security-icon">🔐</span>
+
+        <div>
+          <h2>Seguridad de acceso</h2>
+          <p>Restablecé la contraseña o modificá el estado del usuario.</p>
+        </div>
+      </div>
+
+      <div class="security-actions">
+        <form
+          action={`/api/usuarios/${usuario.id}/reset-password`}
+          method="POST"
+        >
+          <button type="submit" class="btn-warning">
+            🔑 Restablecer contraseña
+          </button>
+        </form>
+
+        <form
+          action={`/api/usuarios/${usuario.id}/toggle-activo`}
+          method="POST"
+        >
+          <button
+            type="submit"
+            class={usuario.activo ? "btn-danger" : "btn-success"}
+          >
+            {usuario.activo ? "🔴 Desactivar usuario" : "🟢 Activar usuario"}
+          </button>
+        </form>
+      </div>
+    </section>
+  </section>
+</AppLayout>
+
+<style>
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .header {
+    margin-bottom: 28px;
+  }
+
+  .kicker {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #db2777;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(38px, 5vw, 56px);
+    line-height: 1;
+    letter-spacing: -0.05em;
+    color: #0f172a;
+  }
+
+  .header p {
+    margin: 12px 0 0;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .success-message {
+    margin-bottom: 20px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 900;
+  }
+
+  .summary-card,
+  .card,
+  .security-card {
+    background: white;
+    border-radius: 28px;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  }
+
+  .summary-card {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .avatar {
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border-radius: 20px;
+    background: #fce7f3;
+    font-size: 28px;
+    flex-shrink: 0;
+  }
+
+  .summary-content {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .summary-card h2 {
+    margin: 0;
+    font-size: 26px;
+    color: #0f172a;
+  }
+
+  .summary-card p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  .summary-row {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+    flex-wrap: wrap;
+  }
+
+  .security-info {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+
+  .security-info strong {
+    display: block;
+    font-size: 12px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .security-info p {
+    margin: 6px 0 0;
+    font-weight: 900;
+    color: #0f172a;
+  }
+
+  .summary-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .card {
+    padding: 32px;
+  }
+
+  .grid {
+    display: grid;
+    gap: 24px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+
+  .field {
+    display: grid;
+    gap: 8px;
+  }
+
+  .field label {
+    font-size: 13px;
+    font-weight: 900;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  input,
+  select {
+    height: 52px;
+    border: none;
+    border-radius: 16px;
+    padding: 0 18px;
+    background: #f8fafc;
+    font: inherit;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .checkbox {
+    align-self: end;
+  }
+
+  .checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-transform: none;
+  }
+
+  .checkbox input {
+    width: 18px;
+    height: 18px;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin-top: 40px;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-warning,
+  .btn-danger,
+  .btn-success {
+    min-height: 48px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: inherit;
+    font-weight: 900;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #db2777, #be185d);
+    color: white;
+  }
+
+  .btn-secondary {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+
+  .btn-warning {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .btn-danger {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .btn-success {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .role {
+    background: #e0e7ff;
+    color: #3730a3;
+  }
+
+  .ok {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .off {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .security-card {
+    margin-top: 24px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .security-copy {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .security-icon {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    background: #fef3c7;
+    font-size: 26px;
+    flex-shrink: 0;
+  }
+
+  .security-card h2 {
+    margin: 0;
+    color: #0f172a;
+  }
+
+  .security-card p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .security-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .password-box {
+    margin-top: 12px;
+
+    padding: 14px 18px;
+
+    border-radius: 16px;
+
+    background: #f8fafc;
+
+    border: 2px dashed #cbd5e1;
+
+    display: inline-flex;
+
+    flex-direction: column;
+
+    gap: 6px;
+  }
+
+  .password-box span {
+    font-size: 12px;
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.08em;
+
+    color: #64748b;
+
+    font-weight: 900;
+  }
+
+  .password-box strong {
+    font-size: 22px;
+
+    letter-spacing: 0.08em;
+
+    color: #0f172a;
+  }
+
+  .password-warning {
+    margin-top: 12px;
+
+    color: #92400e;
+
+    font-weight: 800;
+  }
+
+  @media (max-width: 760px) {
+    .summary-card,
+    .security-card {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .security-actions,
+    .actions {
+      justify-content: stretch;
+      flex-direction: column;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-warning,
+    .btn-danger,
+    .btn-success {
+      width: 100%;
+    }
+  }
+</style>

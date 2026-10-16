@@ -1,0 +1,172 @@
+---
+export const prerender = false;
+
+import AppLayout from "../../layouts/AppLayout.astro";
+
+const url = new URL(Astro.request.url);
+const ok = url.searchParams.get("ok");
+const err = url.searchParams.get("err");
+const procesados = url.searchParams.get("procesados");
+const actualizados = url.searchParams.get("actualizados");
+const sinCambios = url.searchParams.get("sinCambios");
+const noEncontrados = url.searchParams.get("noEncontrados");
+---
+
+<AppLayout title="Actualizar posiciones de SKUs">
+  <section class="panel">
+    <div class="header">
+      <p class="kicker">Base de SKUs</p>
+      <h1>Actualizar posiciones actuales</h1>
+      <p class="description">
+        Subí la planilla de posiciones para actualizar la ubicación vigente de
+        cada SKU y mantener historial de movimientos.
+      </p>
+    </div>
+    <div class="tabs">
+      <a class="tab" href="/base-skus">Base actual</a>
+      <a class="tab" href="/base-skus/cargar">Cargar maestro</a>
+      <a class="tab active" href="/base-skus/posiciones"
+        >Actualizar posiciones</a
+      >
+    </div>
+    <form
+      method="POST"
+      action="/api/base-skus/posiciones"
+      enctype="multipart/form-data"
+      class="form-card"
+    >
+      <label>
+        Archivo Excel
+        <input type="file" name="archivo" accept=".xlsx,.xls" required />
+      </label>
+
+      <div class="actions">
+        <button type="submit">Procesar posiciones</button>
+      </div>
+    </form>
+
+    {
+      ok && (
+        <div class="success-box">
+          <strong>Archivo procesado correctamente.</strong>
+          <p>Procesados: {procesados}</p>
+          <p>Actualizados: {actualizados}</p>
+          <p>Sin cambios: {sinCambios}</p>
+          <p>SKU no encontrados: {noEncontrados}</p>
+        </div>
+      )
+    }
+
+    {err && <div class="error-box">{decodeURIComponent(err)}</div>}
+  </section>
+</AppLayout>
+
+<style>
+  .panel {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .header {
+    margin-bottom: 28px;
+  }
+
+  .kicker {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #db2777;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(32px, 5vw, 48px);
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    color: #0f172a;
+  }
+
+  .description {
+    max-width: 720px;
+    margin: 14px 0 0;
+    font-size: 17px;
+    line-height: 1.6;
+    color: #64748b;
+  }
+
+  .form-card {
+    display: grid;
+    gap: 20px;
+    padding: 24px;
+    border-radius: 24px;
+    background: #ffffff;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  }
+
+  label {
+    display: grid;
+    gap: 8px;
+    font-weight: 700;
+    color: #334155;
+  }
+
+  input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 13px 14px;
+    font-size: 15px;
+  }
+
+  button {
+    border: none;
+    border-radius: 16px;
+    padding: 14px 22px;
+    font-weight: 800;
+    color: white;
+    background: #0f172a;
+    cursor: pointer;
+  }
+
+  .success-box,
+  .error-box {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 18px;
+    font-weight: 700;
+  }
+
+  .success-box {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .error-box {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .tabs {
+    display: flex;
+    gap: 12px;
+    margin: 28px 0;
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .tab.active {
+    background: #0f172a;
+    color: white;
+  }
+</style>

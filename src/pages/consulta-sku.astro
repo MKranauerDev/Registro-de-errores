@@ -1,0 +1,61 @@
+---
+export const prerender = false;
+
+import AppLayout from "../layouts/AppLayout.astro";
+---
+
+<AppLayout title="Consulta SKU">
+  <section class="coming-soon">
+    <span>🚧</span>
+
+    <h1>Consulta SKU</h1>
+
+    <p>Este módulo se encuentra en desarrollo.</p>
+
+    <p>Próximamente permitirá consultar:</p>
+
+    <ul>
+      <li>📦 Descripción del SKU</li>
+
+      <li>📍 Posición actual</li>
+
+      <li>⚖️ Peso</li>
+
+      <li>📐 Dimensiones</li>
+
+      <li>📊 Historial de posiciones</li>
+
+      <li>🖼️ Imagen del producto</li>
+    </ul>
+  </section>
+</AppLayout>
+
+<style>
+  .coming-soon {
+    max-width: 900px;
+
+    margin: 0 auto;
+
+    padding: 80px 40px;
+  }
+
+  .coming-soon span {
+    font-size: 56px;
+  }
+
+  .coming-soon h1 {
+    margin: 12px 0;
+
+    font-size: 48px;
+  }
+
+  .coming-soon p {
+    color: #64748b;
+  }
+
+  .coming-soon ul {
+    margin-top: 24px;
+
+    line-height: 2;
+  }
+</style>
