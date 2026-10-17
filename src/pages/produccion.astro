@@ -361,7 +361,11 @@ function buscarEstacion(codigo: string) {
     });
   });
 
-  function configurarCollapse(toggleId, contenidoId, iconId) {
+  function configurarCollapse(
+    toggleId: string,
+    contenidoId: string,
+    iconId: string,
+  ) {
     const toggle = document.querySelector(toggleId);
     const contenido = document.querySelector(contenidoId);
     const icon = document.querySelector(iconId);

@@ -68,9 +68,33 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return redirect("/cambiar-password");
   }
 
-  if (pathname.startsWith("/api")) {
-    return next();
+  // Proteger todas las API de actualización de posiciones.
+if (
+  pathname === "/api/base-skus/posiciones" ||
+  pathname.startsWith("/api/base-skus/posiciones/")
+) {
+  if (!["ADMIN", "SUPERVISOR"].includes(usuario.rol)) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "No tenés permisos para actualizar posiciones.",
+      }),
+      {
+        status: 403,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
   }
+
+  return next();
+}
+
+// Mantener el comportamiento de las demás API.
+if (pathname.startsWith("/api")) {
+  return next();
+}
 
   const permiso = tienePermiso(usuario.rol, pathname);
 
