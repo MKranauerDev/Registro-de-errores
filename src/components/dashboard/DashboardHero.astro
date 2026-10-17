@@ -1,4 +1,15 @@
 ---
+export const prerender = false;
+
+import { getSessionUser } from "../../lib/auth";
+
+// Obtener usuario de la sesión
+const usuario = await getSessionUser(Astro.cookies);
+
+// Nombre dinámico
+const nombreUsuario = usuario?.nombre ?? "Usuario";
+
+// Fecha y saludo
 const ahora = new Date();
 
 const saludo =
@@ -23,7 +34,7 @@ const hora = ahora.toLocaleTimeString("es-AR", {
 <section class="hero">
   <div>
     <p class="saludo">
-      👋 {saludo}, Matías
+      👋 {saludo}, {nombreUsuario}
     </p>
 
     <p class="fecha">
