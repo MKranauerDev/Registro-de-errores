@@ -2,10 +2,10 @@
 export const prerender = false;
 
 import AppLayout from "../../layouts/AppLayout.astro";
+import { Prisma, EstadoSkuLinea } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 
 const url = new URL(Astro.request.url);
-
 const estado = url.searchParams.get("estado") ?? "todos";
 const q = url.searchParams.get("q")?.trim() ?? "";
 const limitParam = url.searchParams.get("limit") ?? "100";
@@ -15,14 +15,20 @@ const allowedLimits = ["100", "250", "500", "todos"];
 const limitValue = allowedLimits.includes(limitParam) ? limitParam : "100";
 const limiteVista = limitValue === "todos" ? undefined : Number(limitValue);
 
-const estadoWhere =
+const posicionEnLinea: Prisma.SkuPosicionHistorialWhereInput = {
+  esActual: true,
+  estado: EstadoSkuLinea.EN_LINEA,
+  posicion: { not: null },
+};
+
+const estadoWhere: Prisma.SkuWhereInput =
   estado === "en-linea"
-    ? { posiciones: { some: { esActual: true } } }
+    ? { posiciones: { some: posicionEnLinea } }
     : estado === "sin-ubicacion"
-      ? { posiciones: { none: { esActual: true } } }
+      ? { posiciones: { none: posicionEnLinea } }
       : {};
 
-const busquedaWhere = q
+const busquedaWhere: Prisma.SkuWhereInput = q
   ? {
       OR: [
         { codigo: { contains: q, mode: "insensitive" } },
@@ -30,11 +36,8 @@ const busquedaWhere = q
         {
           posiciones: {
             some: {
-              esActual: true,
-              posicion: {
-                contains: q,
-                mode: "insensitive",
-              },
+              ...posicionEnLinea,
+              posicion: { contains: q, mode: "insensitive" },
             },
           },
         },
@@ -42,20 +45,16 @@ const busquedaWhere = q
     }
   : {};
 
-const where = {
-  AND: [estadoWhere, busquedaWhere],
-};
+const where: Prisma.SkuWhereInput = { AND: [estadoWhere, busquedaWhere] };
 
 const totalFiltrado = await prisma.sku.count({ where });
-
 const skusBase = await prisma.sku.findMany({
   where,
-  orderBy: {
-    codigo: "asc",
-  },
+  orderBy: { codigo: "asc" },
   include: {
     posiciones: {
-      where: { esActual: true },
+      where: posicionEnLinea,
+      orderBy: { fechaDesde: "desc" },
       take: 1,
     },
   },
@@ -64,7 +63,6 @@ const skusBase = await prisma.sku.findMany({
 const skusOrdenados = [...skusBase].sort((a, b) => {
   const posicionA = a.posiciones[0]?.posicion ?? "ZZ999";
   const posicionB = b.posiciones[0]?.posicion ?? "ZZ999";
-
   const estacionA = posicionA.slice(0, 2);
   const estacionB = posicionB.slice(0, 2);
 
@@ -73,21 +71,16 @@ const skusOrdenados = [...skusBase].sort((a, b) => {
       return (
         estacionA.localeCompare(estacionB) || posicionA.localeCompare(posicionB)
       );
-
     case "estacion-desc":
       return (
         estacionB.localeCompare(estacionA) || posicionB.localeCompare(posicionA)
       );
-
     case "posicion-desc":
       return posicionB.localeCompare(posicionA);
-
     case "codigo-asc":
       return a.codigo.localeCompare(b.codigo);
-
     case "codigo-desc":
       return b.codigo.localeCompare(a.codigo);
-
     case "posicion-asc":
     default:
       return posicionA.localeCompare(posicionB);
@@ -95,23 +88,14 @@ const skusOrdenados = [...skusBase].sort((a, b) => {
 });
 
 type SkuConPosicion = (typeof skusBase)[number];
-
 const skusVista: SkuConPosicion[] = limiteVista
   ? skusOrdenados.slice(0, limiteVista)
   : skusOrdenados;
 
 const totalSkus = await prisma.sku.count();
-
 const skusConPosicion = await prisma.sku.count({
-  where: {
-    posiciones: {
-      some: {
-        esActual: true,
-      },
-    },
-  },
+  where: { posiciones: { some: posicionEnLinea } },
 });
-
 const skusSinPosicion = totalSkus - skusConPosicion;
 
 const tituloFiltro =
@@ -137,23 +121,28 @@ const tituloFiltro =
 
     <div class="tabs">
       <a class="tab active" href="/base-skus">Base actual</a>
+
       <a class="tab" href="/base-skus/cargar">Cargar maestro</a>
+
       <a class="tab" href="/base-skus/posiciones">Actualizar posiciones</a>
     </div>
 
     <div class="cards">
       <article class="card">
         <span>Total SKUs</span>
+
         <strong>{totalSkus}</strong>
       </article>
 
       <article class="card">
         <span>Con posición</span>
+
         <strong>{skusConPosicion}</strong>
       </article>
 
       <article class="card">
         <span>Sin posición</span>
+
         <strong>{skusSinPosicion}</strong>
       </article>
     </div>
@@ -161,6 +150,7 @@ const tituloFiltro =
     <div class="table-card">
       <div class="table-header">
         <h2>Vista actual de la base</h2>
+
         <p>{tituloFiltro}. Resultados encontrados: {totalFiltrado}.</p>
       </div>
 
@@ -170,6 +160,7 @@ const tituloFiltro =
         <div class="search-row">
           <label class="field search-field">
             <span>Buscar SKU, descripción o posición</span>
+
             <input
               name="q"
               value={q}
@@ -179,10 +170,14 @@ const tituloFiltro =
 
           <label class="field">
             <span>Mostrar</span>
+
             <select name="limit">
               <option value="100" selected={limitValue === "100"}>100</option>
+
               <option value="250" selected={limitValue === "250"}>250</option>
+
               <option value="500" selected={limitValue === "500"}>500</option>
+
               <option value="todos" selected={limitValue === "todos"}>
                 Todos
               </option>
@@ -191,28 +186,34 @@ const tituloFiltro =
 
           <label class="field">
             <span>Ordenar</span>
+
             <select name="orden">
               <option value="posicion-asc" selected={orden === "posicion-asc"}>
                 Posición menor → mayor
               </option>
+
               <option
                 value="posicion-desc"
                 selected={orden === "posicion-desc"}
               >
                 Posición mayor → menor
               </option>
+
               <option value="estacion-asc" selected={orden === "estacion-asc"}>
                 Estación A → Z
               </option>
+
               <option
                 value="estacion-desc"
                 selected={orden === "estacion-desc"}
               >
                 Estación Z → A
               </option>
+
               <option value="codigo-asc" selected={orden === "codigo-asc"}>
                 Código A → Z
               </option>
+
               <option value="codigo-desc" selected={orden === "codigo-desc"}>
                 Código Z → A
               </option>
@@ -220,6 +221,7 @@ const tituloFiltro =
           </label>
 
           <button type="submit">Buscar</button>
+
           <a class="clear-link" href="/base-skus">Limpiar</a>
         </div>
       </form>
@@ -229,7 +231,9 @@ const tituloFiltro =
           class={estado === "todos" ? "filter active" : "filter"}
           href={`/base-skus?${new URLSearchParams({
             ...(q ? { q } : {}),
+
             limit: limitValue,
+
             orden,
           }).toString()}`}
         >
@@ -240,8 +244,11 @@ const tituloFiltro =
           class={estado === "en-linea" ? "filter active" : "filter"}
           href={`/base-skus?${new URLSearchParams({
             estado: "en-linea",
+
             ...(q ? { q } : {}),
+
             limit: limitValue,
+
             orden,
           }).toString()}`}
         >
@@ -252,8 +259,11 @@ const tituloFiltro =
           class={estado === "sin-ubicacion" ? "filter active" : "filter"}
           href={`/base-skus?${new URLSearchParams({
             estado: "sin-ubicacion",
+
             ...(q ? { q } : {}),
+
             limit: limitValue,
+
             orden,
           }).toString()}`}
         >
@@ -266,11 +276,17 @@ const tituloFiltro =
           <thead>
             <tr>
               <th>Estación</th>
+
               <th>Posición</th>
+
               <th>Código</th>
+
               <th>Descripción</th>
+
               <th>Volumen</th>
+
               <th>Peso</th>
+
               <th>Estado</th>
             </tr>
           </thead>
@@ -279,18 +295,23 @@ const tituloFiltro =
             {
               skusVista.map((sku) => {
                 const posicionActual = sku.posiciones[0];
-                const estacion = posicionActual
-                  ? posicionActual.posicion.slice(0, 2)
-                  : "-";
+
+                const estacion = posicionActual?.posicion?.slice(0, 2) ?? "-";
 
                 return (
                   <tr>
                     <td>{estacion}</td>
+
                     <td>{posicionActual?.posicion ?? "Sin posición"}</td>
+
                     <td>{sku.codigo}</td>
+
                     <td>{sku.descripcion ?? "-"}</td>
+
                     <td>{sku.cubicaje ?? "-"}</td>
+
                     <td>{sku.pesoBranch ?? "-"}</td>
+
                     <td>
                       <span
                         class={posicionActual ? "badge ok" : "badge warning"}
@@ -322,7 +343,9 @@ const tituloFiltro =
 <style>
   .panel {
     width: 100%;
+
     max-width: 1180px;
+
     margin: 0 auto;
   }
 
@@ -332,194 +355,277 @@ const tituloFiltro =
 
   .kicker {
     margin: 0 0 10px;
+
     font-size: 12px;
+
     font-weight: 800;
+
     letter-spacing: 0.22em;
+
     text-transform: uppercase;
+
     color: #db2777;
   }
 
   h1 {
     margin: 0;
+
     font-size: clamp(34px, 5vw, 54px);
+
     line-height: 1;
+
     font-weight: 900;
+
     letter-spacing: -0.05em;
+
     color: #0f172a;
   }
 
   .description {
     max-width: 780px;
+
     margin: 14px 0 0;
+
     font-size: 17px;
+
     line-height: 1.6;
+
     color: #64748b;
   }
 
   .tabs {
     display: flex;
+
     gap: 12px;
+
     margin: 28px 0;
+
     flex-wrap: wrap;
   }
 
   .tab {
     padding: 12px 18px;
+
     border-radius: 999px;
+
     background: #e2e8f0;
+
     color: #334155;
+
     font-weight: 800;
+
     text-decoration: none;
   }
 
   .tab.active {
     background: #0f172a;
+
     color: white;
   }
 
   .cards {
     display: grid;
+
     grid-template-columns: repeat(3, minmax(0, 1fr));
+
     gap: 18px;
+
     margin-bottom: 26px;
   }
 
   .card {
     padding: 22px;
+
     border-radius: 24px;
+
     background: white;
+
     box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
   }
 
   .card span {
     display: block;
+
     font-size: 14px;
+
     font-weight: 700;
+
     color: #64748b;
   }
 
   .card strong {
     display: block;
+
     margin-top: 8px;
+
     font-size: 36px;
+
     color: #0f172a;
   }
 
   .table-card {
     border-radius: 26px;
+
     background: white;
+
     box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+
     overflow: hidden;
   }
 
   .table-header {
     padding: 22px 24px;
+
     border-bottom: 1px solid #e2e8f0;
   }
 
   .table-header h2 {
     margin: 0;
+
     font-size: 22px;
+
     color: #0f172a;
   }
 
   .table-header p {
     margin: 6px 0 0;
+
     color: #64748b;
   }
 
   .search-bar {
     padding: 24px;
+
     border-bottom: 1px solid #e2e8f0;
   }
 
   .search-row {
     display: grid;
+
     grid-template-columns: minmax(320px, 2fr) 140px 280px 130px 130px;
+
     gap: 14px;
+
     align-items: end;
   }
 
   .search-field {
     min-width: 0;
+
     max-width: 520px;
   }
 
   .search-field input {
     width: 100%;
+
     max-width: 360px;
   }
 
   .field {
     display: flex;
+
     flex-direction: column;
+
     gap: 8px;
   }
 
   .field span {
     font-size: 11px;
+
     font-weight: 800;
+
     text-transform: uppercase;
+
     letter-spacing: 0.14em;
+
     color: #64748b;
   }
 
   .search-bar input,
   .search-bar select {
     width: 100%;
+
     height: 52px;
+
     padding: 0 18px;
+
     border: 1px solid #cbd5e1;
+
     border-radius: 18px;
+
     font-size: 15px;
+
     background: white;
+
     color: #0f172a;
   }
 
   .search-bar button,
   .clear-link {
     height: 52px;
+
     min-width: 130px;
+
     width: 130px;
+
     border: none;
+
     border-radius: 18px;
+
     display: flex;
+
     align-items: center;
+
     justify-content: center;
+
     font-size: 17px;
+
     font-weight: 800;
+
     text-decoration: none;
   }
 
   .search-bar button {
     background: #0f172a;
+
     color: white;
+
     cursor: pointer;
   }
 
   .clear-link {
     background: #e2e8f0;
+
     color: #334155;
   }
 
   .filters {
     display: flex;
+
     gap: 12px;
+
     flex-wrap: wrap;
+
     margin: 18px 24px 22px;
   }
 
   .filter {
     padding: 12px 18px;
+
     border-radius: 999px;
+
     background: #e2e8f0;
+
     color: #334155;
+
     font-weight: 800;
+
     text-decoration: none;
   }
 
   .filter.active {
     background: #0f172a;
+
     color: white;
   }
 
@@ -529,22 +635,30 @@ const tituloFiltro =
 
   table {
     width: 100%;
+
     border-collapse: collapse;
+
     font-size: 14px;
   }
 
   th,
   td {
     padding: 14px 18px;
+
     text-align: left;
+
     border-bottom: 1px solid #e2e8f0;
   }
 
   th {
     background: #f8fafc;
+
     font-size: 12px;
+
     text-transform: uppercase;
+
     letter-spacing: 0.08em;
+
     color: #475569;
   }
 
@@ -554,26 +668,35 @@ const tituloFiltro =
 
   .badge {
     display: inline-flex;
+
     padding: 6px 10px;
+
     border-radius: 999px;
+
     font-size: 12px;
+
     font-weight: 800;
   }
 
   .badge.ok {
     background: #dcfce7;
+
     color: #166534;
   }
 
   .badge.warning {
     background: #fee2e2;
+
     color: #991b1b;
   }
 
   .empty {
     text-align: center;
+
     padding: 30px;
+
     color: #64748b;
+
     font-weight: 700;
   }
 

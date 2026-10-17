@@ -6,6 +6,7 @@ export const permisos = {
     "/base-skus",
     "/cargar-posiciones",
     "/consulta-sku",
+    "/mapa-linea",
     "/reportes",
     "/usuarios",
   ],
@@ -17,6 +18,7 @@ export const permisos = {
     "/base-skus",
     "/cargar-posiciones",
     "/consulta-sku",
+    "/mapa-linea",
     "/reportes",
   ],
 

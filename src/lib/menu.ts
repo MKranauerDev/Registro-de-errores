@@ -17,7 +17,10 @@ export const menuPorRol = {
       nombre: "Consulta SKU",
       ruta: "/consulta-sku",
     },
-
+    {
+      nombre: "Mapa de línea",
+      ruta: "/mapa-linea",
+    },
     {
       nombre: "Reportes",
       ruta: "/reportes",
@@ -41,6 +44,10 @@ export const menuPorRol = {
     {
       nombre: "Consulta SKU",
       ruta: "/consulta-sku",
+    },
+    {
+      nombre: "Mapa de línea",
+      ruta: "/mapa-linea",
     },
   ],
 

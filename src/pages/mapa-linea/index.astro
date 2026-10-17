@@ -1,0 +1,256 @@
+---
+export const prerender = false;
+import AppLayout from "../../layouts/AppLayout.astro";
+import { distribucion } from "../../lib/mapa-linea/distribucion";
+
+const estaciones = ["XA", "XB", "XC", "XD", "XE", "XF", "XG", "XH"];
+const solicitada = Astro.url.searchParams.get("estacion")?.toUpperCase();
+const estacion = solicitada && estaciones.includes(solicitada) ? solicitada : "XA";
+const posiciones = distribucion[estacion] ?? [];
+const columnas = Math.max(1, ...posiciones.map((p) => p.columna + 1));
+const filas = Math.max(1, ...posiciones.map((p) => p.fila + 1));
+---
+
+<AppLayout title="Mapa de línea">
+  <main class="mapa-linea">
+    <header>
+      <h1>Mapa de línea de pickeo</h1>
+      <p>Plano de posiciones según la hoja «Posicion impresion». Seleccioná una estación y hacé clic sobre una posición para consultar su ficha.</p>
+    </header>
+
+    <nav class="estaciones" aria-label="Estaciones de la línea">
+      {estaciones.map((codigo) => (
+        <a href={`/mapa-linea?estacion=${codigo}`} class:list={["estacion", { activa: codigo === estacion }]} aria-current={codigo === estacion ? "page" : undefined}>
+          <strong>{codigo}</strong>
+          <small>{distribucion[codigo]?.length ?? 0} posiciones</small>
+        </a>
+      ))}
+    </nav>
+
+    <section class="panel">
+      <div class="encabezado">
+        <div>
+          <h2>Estación {estacion}</h2>
+          <p>{posiciones.length} posiciones del plano</p>
+        </div>
+        <span class="leyenda">Hacé clic sobre una casilla para ver su detalle</span>
+      </div>
+      <div class="plano-scroll">
+        <div class="plano" style={`--columnas:${columnas};--filas:${filas}`}>
+          {posiciones.map((posicion) => (
+            <button type="button" class="posicion" data-posicion={posicion.codigo} style={`grid-column:${posicion.columna + 1};grid-row:${posicion.fila + 1}`} aria-label={`Ver posición ${posicion.codigo}`} aria-pressed="false">
+              {posicion.codigo}
+              <span class="ayuda-hover" aria-hidden="true">Posición {posicion.codigo} · clic para consultar</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <section class="detalle" id="detalle-posicion" role="dialog" aria-modal="true" aria-labelledby="detalle-codigo" hidden>
+        <div class="detalle-tarjeta">
+        <div class="detalle-cabecera">
+          <div>
+            <span class="detalle-etiqueta">Posición seleccionada</span>
+            <h3 id="detalle-codigo">—</h3>
+          </div>
+          <button class="cerrar" type="button" id="cerrar-detalle" aria-label="Cerrar detalle">✕</button>
+        </div>
+        <div class="detalle-contenido">
+          <div class="foto-vacia" id="foto-contenedor">
+            <span class="foto-icono" aria-hidden="true">▧</span>
+            <span>Fotografía del artículo</span>
+            <small>Disponible en una próxima etapa</small>
+          </div>
+          <div class="datos">
+            <div class="campo"><span>SKU</span><strong id="dato-sku">Consultando…</strong></div>
+            <div class="campo"><span>Descripción</span><strong id="dato-descripcion">—</strong></div>
+            <div class="campo"><span>Ocupación</span><strong id="dato-ocupacion">Sin consultar</strong></div>
+            <div class="campo"><span>Piezas por caja</span><strong id="dato-piezas">—</strong></div>
+            <div class="campo"><span>Dimensiones</span><strong id="dato-dimensiones">—</strong></div>
+            <div class="campo"><span>Peso</span><strong id="dato-peso">—</strong></div>
+            <div class="campo"><span>Cubicaje</span><strong id="dato-cubicaje">—</strong></div>
+            <div class="campo"><span>Verificación</span><strong>Aún no disponible</strong></div>
+          </div>
+        </div>
+        <p class="detalle-nota">Consulta de solo lectura. Las verificaciones se incorporarán en una etapa posterior.</p>
+        </div>
+      </section>
+
+      <p class="nota">Este plano es de solo lectura. Las separaciones reproducen las celdas de la planilla; todavía no identifican formalmente el frente, la parte posterior ni el freno del operario.</p>
+    </section>
+  </main>
+</AppLayout>
+
+<script>
+  const detalle = document.querySelector<HTMLElement>("#detalle-posicion");
+  const codigoDetalle = document.querySelector<HTMLElement>("#detalle-codigo");
+  const cerrar = document.querySelector<HTMLButtonElement>("#cerrar-detalle");
+  const botones = document.querySelectorAll<HTMLButtonElement>(".plano .posicion");
+  let botonAnterior: HTMLButtonElement | null = null;
+  let solicitudActual: AbortController | null = null;
+  const campo = (id: string, valor: string) => {
+    const elemento = document.getElementById(`dato-${id}`);
+    if (elemento) elemento.textContent = valor;
+  };
+  const mostrar = (valor: unknown, unidad = "") =>
+    typeof valor === "number" && Number.isFinite(valor) ? `${valor.toLocaleString("es-AR")}${unidad}` : "Sin información";
+
+  async function cargarPosicion(codigo: string) {
+    solicitudActual?.abort();
+    const controlador = new AbortController();
+    solicitudActual = controlador;
+    for (const id of ["sku", "descripcion", "ocupacion", "piezas", "dimensiones", "peso", "cubicaje"]) campo(id, "Consultando…");
+    const foto = document.getElementById("foto-contenedor");
+    if (foto) foto.innerHTML = '<span class="foto-icono" aria-hidden="true">▧</span><span>Fotografía del artículo</span><small>Sin cargar</small>';
+    try {
+      const respuesta = await fetch(`/api/mapa-linea/posicion?codigo=${encodeURIComponent(codigo)}`, {
+        signal: controlador.signal,
+        credentials: "same-origin",
+      });
+      const datos = await respuesta.json();
+      if (!respuesta.ok) throw new Error(datos.error || "Error de consulta");
+      if (controlador.signal.aborted) return;
+      if (!datos.ocupada) {
+        campo("sku", "Sin artículo asignado");
+        campo("ocupacion", "Sin SKU asignado");
+        for (const id of ["descripcion", "piezas", "dimensiones", "peso", "cubicaje"]) campo(id, "—");
+        return;
+      }
+      const sku = datos.sku;
+      campo("sku", sku.codigo);
+      campo("descripcion", sku.descripcion || "Sin información");
+      campo("ocupacion", "Ocupada");
+      campo("piezas", mostrar(sku.piezasCaja));
+      campo("dimensiones", [sku.width, sku.depth, sku.height].every((v: unknown) => typeof v === "number")
+        ? `${mostrar(sku.width)} × ${mostrar(sku.depth)} × ${mostrar(sku.height)}` : "Sin información");
+      campo("peso", mostrar(sku.pesoBranch));
+      campo("cubicaje", mostrar(sku.cubicaje));
+      if (foto && typeof sku.imagenUrl === "string" && sku.imagenUrl.startsWith("/") && !sku.imagenUrl.startsWith("//")) {
+        const img = document.createElement("img");
+        img.src = sku.imagenUrl;
+        img.alt = `Fotografía de SKU ${sku.codigo}`;
+        img.loading = "lazy";
+        img.style.cssText = "width:100%;height:220px;object-fit:contain";
+        img.onerror = () => { foto.textContent = "Fotografía no disponible"; };
+        foto.replaceChildren(img);
+      }
+    } catch (error) {
+      if (controlador.signal.aborted) return;
+      campo("sku", error instanceof Error ? error.message : "Error al consultar");
+      for (const id of ["descripcion", "ocupacion", "piezas", "dimensiones", "peso", "cubicaje"]) campo(id, "—");
+    }
+  }
+
+  let cierrePendiente: ReturnType<typeof setTimeout> | null = null;
+  const duracion = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
+
+  function limpiarSeleccion() {
+    botones.forEach((boton) => {
+      boton.classList.remove("seleccionada");
+      boton.setAttribute("aria-pressed", "false");
+    });
+  }
+
+  function cerrarDetalle() {
+    solicitudActual?.abort();
+    if (!detalle || detalle.hidden || detalle.classList.contains("cerrando")) return;
+    detalle.classList.add("cerrando");
+    cierrePendiente = setTimeout(() => {
+      detalle.hidden = true;
+      detalle.classList.remove("cerrando");
+      document.body.style.overflow = "";
+      limpiarSeleccion();
+      botonAnterior?.focus();
+      botonAnterior = null;
+      cierrePendiente = null;
+    }, duracion);
+  }
+
+  botones.forEach((boton) => {
+    boton.addEventListener("click", () => {
+      const codigo = boton.dataset.posicion;
+      if (!codigo || !detalle || !codigoDetalle) return;
+      botonAnterior = boton;
+      limpiarSeleccion();
+      boton.classList.add("seleccionada");
+      boton.setAttribute("aria-pressed", "true");
+      codigoDetalle.textContent = codigo;
+      void cargarPosicion(codigo);
+      if (cierrePendiente !== null) {
+        clearTimeout(cierrePendiente);
+        cierrePendiente = null;
+      }
+      detalle.classList.remove("cerrando");
+      detalle.hidden = false;
+      document.body.style.overflow = "hidden";
+      cerrar?.focus();
+    });
+  });
+
+  cerrar?.addEventListener("click", cerrarDetalle);
+  detalle?.addEventListener("click", (evento) => {
+    if (evento.target === detalle) cerrarDetalle();
+  });
+  document.addEventListener("keydown", (evento) => {
+    if (!detalle || detalle.hidden) return;
+    if (evento.key === "Escape") cerrarDetalle();
+    if (evento.key === "Tab") {
+      // Por ahora, el único control interactivo de la ficha es Cerrar.
+      evento.preventDefault();
+      cerrar?.focus();
+    }
+  });
+</script>
+
+<style>
+  .mapa-linea { padding: 28px; max-width: 1600px; margin: 0 auto; color: #0f172a; }
+  h1 { margin: 0 0 8px; font-size: 30px; }
+  header p, .encabezado p, .nota { color: #64748b; }
+  header p { margin: 0 0 24px; }
+  .estaciones { display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); gap: 10px; margin-bottom: 22px; }
+  .estacion { display: grid; gap: 5px; padding: 14px 8px; border: 1px solid #cbd5e1; border-radius: 12px; text-align: center; background: white; color: #334155; text-decoration: none; }
+  .estacion strong { font-size: 20px; }
+  .estacion small { font-size: 11px; }
+  .estacion:hover { border-color: #64748b; }
+  .estacion.activa { background: #07162b; color: white; border-color: #07162b; }
+  .panel { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 22px; }
+  .encabezado { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .encabezado h2 { margin: 0 0 5px; }
+  .encabezado p { margin: 0; }
+  .leyenda { font-size: 12px; color: #64748b; }
+  .plano-scroll { overflow-x: auto; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
+  .plano { display: grid; grid-template-columns: repeat(var(--columnas), minmax(42px, 1fr)); grid-template-rows: repeat(var(--filas), 38px); gap: 3px; min-width: 1050px; }
+  .posicion { position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid #93c5fd; border-radius: 5px; background: #dbeafe; color: #1e3a8a; font-size: 10px; font-weight: 700; white-space: nowrap; cursor: pointer; padding: 0 2px; font-family: inherit; }
+  .posicion:hover { background: #bfdbfe; }
+  .posicion:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  .posicion.seleccionada { background: #1e40af; color: white; border-color: #1e3a8a; }
+  .ayuda-hover { visibility: hidden; opacity: 0; pointer-events: none; position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 10; background: #0f172a; color: white; border-radius: 6px; padding: 7px 9px; font-size: 11px; font-weight: 400; transition: opacity .15s ease .65s, visibility 0s linear .8s; }
+  @media (hover: hover) { .posicion:hover .ayuda-hover { visibility: visible; opacity: 1; transition: opacity .15s ease .65s, visibility 0s linear .65s; } }
+  .detalle[hidden] { display: none; }
+  .detalle { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(15,23,42,.55); }
+  .detalle:not([hidden]) { animation: fondo-entrada 220ms ease-out both; }
+  .detalle:not([hidden]) .detalle-tarjeta { animation: tarjeta-entrada 220ms cubic-bezier(.2,.8,.2,1) both; }
+  .detalle.cerrando { animation: fondo-salida 220ms ease-in both; }
+  .detalle.cerrando .detalle-tarjeta { animation: tarjeta-salida 220ms ease-in both; }
+  @keyframes fondo-entrada { from { background-color: rgba(15,23,42,0); } to { background-color: rgba(15,23,42,.55); } }
+  @keyframes fondo-salida { from { background-color: rgba(15,23,42,.55); } to { background-color: rgba(15,23,42,0); } }
+  @keyframes tarjeta-entrada { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes tarjeta-salida { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(.99); } }
+  @media (prefers-reduced-motion: reduce) { .detalle, .detalle-tarjeta { animation: none !important; } }
+  .detalle-tarjeta { width: min(100%, 920px); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 22px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; box-shadow: 0 24px 80px rgba(15,23,42,.25); }
+  .detalle-cabecera { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 16px; }
+  .detalle-etiqueta { color: #64748b; font-size: 12px; }
+  .detalle h3 { margin: 4px 0 0; font-size: 23px; }
+  .cerrar { cursor: pointer; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 7px; width: 32px; height: 32px; }
+  .detalle-contenido { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 20px; }
+  .foto-vacia { min-height: 175px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #64748b; font-size: 13px; text-align: center; }
+  .foto-icono { font-size: 35px; }
+  .foto-vacia small { font-size: 11px; }
+  .datos { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .campo { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9; min-width: 0; }
+  .campo span { color: #64748b; font-size: 12px; }
+  .campo strong { font-size: 13px; overflow-wrap: anywhere; }
+  .detalle-nota, .nota { font-size: 12px; line-height: 1.6; margin: 16px 0 0; color: #64748b; }
+  @media (max-width: 1000px) { .estaciones { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 600px) { .mapa-linea { padding: 14px; } .estaciones { grid-template-columns: repeat(2, 1fr); } .detalle { padding: 12px; } .detalle-tarjeta { padding: 16px; max-height: calc(100dvh - 24px); } .detalle-contenido { grid-template-columns: 1fr; } .datos { grid-template-columns: 1fr 1fr; } }
+</style>

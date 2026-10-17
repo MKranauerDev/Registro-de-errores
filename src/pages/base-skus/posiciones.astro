@@ -1,15 +1,6 @@
 ---
 export const prerender = false;
-
 import AppLayout from "../../layouts/AppLayout.astro";
-
-const url = new URL(Astro.request.url);
-const ok = url.searchParams.get("ok");
-const err = url.searchParams.get("err");
-const procesados = url.searchParams.get("procesados");
-const actualizados = url.searchParams.get("actualizados");
-const sinCambios = url.searchParams.get("sinCambios");
-const noEncontrados = url.searchParams.get("noEncontrados");
 ---
 
 <AppLayout title="Actualizar posiciones de SKUs">
@@ -18,8 +9,8 @@ const noEncontrados = url.searchParams.get("noEncontrados");
       <p class="kicker">Base de SKUs</p>
       <h1>Actualizar posiciones actuales</h1>
       <p class="description">
-        Subí la planilla de posiciones para actualizar la ubicación vigente de
-        cada SKU y mantener historial de movimientos.
+        Subí la planilla completa del WMS para comparar las ubicaciones vigentes
+        antes de confirmar cualquier modificación.
       </p>
     </div>
     <div class="tabs">
@@ -29,37 +20,330 @@ const noEncontrados = url.searchParams.get("noEncontrados");
         >Actualizar posiciones</a
       >
     </div>
-    <form
-      method="POST"
-      action="/api/base-skus/posiciones"
-      enctype="multipart/form-data"
-      class="form-card"
-    >
-      <label>
-        Archivo Excel
-        <input type="file" name="archivo" accept=".xlsx,.xls" required />
+    <form id="form-posiciones" class="form-card" enctype="multipart/form-data">
+      <label for="archivo"
+        >Archivo Excel
+        <input
+          id="archivo"
+          type="file"
+          name="archivo"
+          accept=".xlsx,.xls"
+          required
+        />
       </label>
-
       <div class="actions">
-        <button type="submit">Procesar posiciones</button>
+        <button id="analizar" type="submit">Analizar posiciones</button>
       </div>
+      <p class="hint">
+        Esta etapa solo analiza el archivo. No se modificará la base de datos.
+      </p>
     </form>
-
-    {
-      ok && (
-        <div class="success-box">
-          <strong>Archivo procesado correctamente.</strong>
-          <p>Procesados: {procesados}</p>
-          <p>Actualizados: {actualizados}</p>
-          <p>Sin cambios: {sinCambios}</p>
-          <p>SKU no encontrados: {noEncontrados}</p>
-        </div>
-      )
-    }
-
-    {err && <div class="error-box">{decodeURIComponent(err)}</div>}
+    <div id="mensaje" class="error-box" role="alert" hidden></div>
   </section>
+
+  <dialog id="modal-preview" aria-labelledby="titulo-preview">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <div>
+          <p class="kicker">Vista previa del WMS</p>
+          <h2 id="titulo-preview">Resultado de la comparación</h2>
+        </div>
+        <button type="button" id="cerrar-x" class="close" aria-label="Cerrar"
+          >×</button
+        >
+      </div>
+      <p id="aviso" class="description modal-description"></p>
+      <div id="resumen" class="stats"></div>
+      <div id="advertencias" class="warning-box" hidden></div>
+      <div class="detail-header">
+        <h3>Detalle de diferencias</h3><p>
+          Se muestran hasta 100 registros por categoría.
+        </p>
+      </div>
+      <div id="detalles"></div>
+      <div class="modal-actions">
+        <button type="button" id="cerrar" class="secondary"
+          >Cerrar sin modificar</button
+        >
+        <button type="button" id="confirmar" disabled
+          >Confirmar actualización</button
+        >
+      </div>
+    </div>
+  </dialog>
 </AppLayout>
+
+<script>
+  type Cambio = {
+    codigo: string;
+    anterior: string | null;
+    nueva: string | null;
+  };
+  type Asignacion = { codigo: string; posicion: string };
+  type Duplicada = { posicion: string; codigos: string[] };
+  type Preview = {
+    ok: boolean;
+    puedeConfirmar: boolean;
+    snapshot: string;
+    hashArchivo: string;
+    resumen: Record<string, number>;
+    detalle: {
+      movimientos: Cambio[];
+      nuevos: Cambio[];
+      retirados: Cambio[];
+      sinCambios: Asignacion[];
+      duplicadas: Duplicada[];
+      noEncontrados: string[];
+      errores: string[];
+    };
+    aviso?: string;
+    error?: string;
+  };
+  const form = document.querySelector<HTMLFormElement>("#form-posiciones")!;
+  const archivo = document.querySelector<HTMLInputElement>("#archivo")!;
+  const boton = document.querySelector<HTMLButtonElement>("#analizar")!;
+  const mensaje = document.querySelector<HTMLDivElement>("#mensaje")!;
+  const modal = document.querySelector<HTMLDialogElement>("#modal-preview")!;
+  const resumen = document.querySelector<HTMLDivElement>("#resumen")!;
+  const detalles = document.querySelector<HTMLDivElement>("#detalles")!;
+  const advertencias = document.querySelector<HTMLDivElement>("#advertencias")!;
+  const aviso = document.querySelector<HTMLParagraphElement>("#aviso")!;
+  const confirmar = document.querySelector<HTMLButtonElement>("#confirmar")!;
+  let vistaActual: Preview | null = null;
+
+  function hayCambiosPendientes(data: Preview): boolean {
+    const r = data.resumen;
+
+    return (
+      (r.movimientos ?? 0) > 0 ||
+      (r.nuevos ?? 0) > 0 ||
+      (r.retirados ?? 0) > 0 ||
+      (r.posicionesDuplicadasActuales ?? 0) > 0
+    );
+  }
+
+  function elemento(tag: string, texto: string, clase?: string): HTMLElement {
+    const el = document.createElement(tag);
+    el.textContent = texto;
+    if (clase) el.className = clase;
+    return el;
+  }
+  function seccion(titulo: string, filas: string[], total: number) {
+    const bloque = document.createElement("details");
+    bloque.className = "detail-block";
+    const cabecera = document.createElement("summary");
+    cabecera.textContent = `${titulo} (${total})`;
+    bloque.append(cabecera);
+    const lista = document.createElement("ul");
+    if (filas.length === 0) lista.append(elemento("li", "Sin registros."));
+    for (const fila of filas.slice(0, 100)) lista.append(elemento("li", fila));
+    if (filas.length > 100)
+      lista.append(elemento("li", `… y ${filas.length - 100} registros más.`));
+    bloque.append(lista);
+    detalles.append(bloque);
+  }
+  function mostrar(data: Preview) {
+    vistaActual = data;
+
+    const hayCambios = hayCambiosPendientes(data);
+    const puedeActualizar = data.puedeConfirmar && hayCambios;
+
+    confirmar.disabled = !puedeActualizar;
+    confirmar.classList.toggle(
+      "todo-actualizado",
+      data.puedeConfirmar && !hayCambios,
+    );
+
+    confirmar.textContent = !data.puedeConfirmar
+      ? "No se puede confirmar"
+      : !hayCambios
+        ? "Todo actualizado"
+        : "Confirmar actualización";
+
+    confirmar.title = !data.puedeConfirmar
+      ? "El Excel contiene inconsistencias."
+      : !hayCambios
+        ? "Las posiciones ya coinciden con el WMS."
+        : "Aplicar los cambios detectados.";
+
+    resumen.replaceChildren();
+    detalles.replaceChildren();
+    advertencias.replaceChildren();
+    const etiquetas: Record<string, string> = {
+      filasValidas: "Filas válidas",
+      skusExcel: "SKU en Excel",
+      movimientos: "Movimientos",
+      nuevos: "Nuevos",
+      retirados: "Retirados",
+      sinCambios: "Sin cambios",
+      posicionesDuplicadasActuales: "Posiciones duplicadas en BD",
+      skuNoEncontrados: "SKU no encontrados",
+      inconsistenciasExcel: "Inconsistencias del Excel",
+    };
+    for (const [clave, etiqueta] of Object.entries(etiquetas)) {
+      const card = document.createElement("div");
+      card.className = "stat";
+      card.append(
+        elemento("strong", String(data.resumen[clave] ?? 0)),
+        elemento("span", etiqueta),
+      );
+      resumen.append(card);
+    }
+    seccion(
+      "Movimientos",
+      data.detalle.movimientos.map(
+        (x) => `${x.codigo}: ${x.anterior ?? "—"} → ${x.nueva ?? "—"}`,
+      ),
+      data.detalle.movimientos.length,
+    );
+    seccion(
+      "Nuevos en línea",
+      data.detalle.nuevos.map((x) => `${x.codigo}: ${x.nueva}`),
+      data.detalle.nuevos.length,
+    );
+    seccion(
+      "Retirados de línea",
+      data.detalle.retirados.map((x) => `${x.codigo}: ${x.anterior}`),
+      data.detalle.retirados.length,
+    );
+    seccion(
+      "Sin cambios",
+      data.detalle.sinCambios.map((x) => `${x.codigo}: ${x.posicion}`),
+      data.detalle.sinCambios.length,
+    );
+    seccion(
+      "Posiciones duplicadas actualmente en BD",
+      data.detalle.duplicadas.map(
+        (x) => `${x.posicion}: ${x.codigos.join(", ")}`,
+      ),
+      data.detalle.duplicadas.length,
+    );
+    seccion(
+      "SKU ausentes del maestro",
+      data.detalle.noEncontrados,
+      data.detalle.noEncontrados.length,
+    );
+    seccion(
+      "Errores del Excel",
+      data.detalle.errores,
+      data.detalle.errores.length,
+    );
+    aviso.textContent =
+      data.aviso ?? "Análisis finalizado sin modificar datos.";
+    if (!data.puedeConfirmar) {
+      advertencias.hidden = false;
+      advertencias.textContent =
+        "El Excel presenta inconsistencias que deberán resolverse antes de confirmar una actualización.";
+    } else if (data.detalle.duplicadas.length) {
+      advertencias.hidden = false;
+      advertencias.textContent =
+        "Se detectaron asignaciones duplicadas en la base de datos. Se muestran para revisión; este análisis no las corrige.";
+    } else {
+      advertencias.hidden = true;
+    }
+    modal.showModal();
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    mensaje.hidden = true;
+    if (!archivo.files?.length) return;
+    vistaActual = null;
+    confirmar.disabled = true;
+    boton.disabled = true;
+    boton.textContent = "Analizando…";
+    try {
+      const respuesta = await fetch("/api/base-skus/posiciones/preview", {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+      });
+      const tipo = respuesta.headers.get("content-type") ?? "";
+      if (!tipo.includes("application/json"))
+        throw new Error(
+          "El servidor no devolvió JSON. Revisá la sesión y los permisos.",
+        );
+      const data = (await respuesta.json()) as Preview;
+      if (!respuesta.ok || !data.ok)
+        throw new Error(data.error ?? "No se pudo analizar el archivo.");
+      mostrar(data);
+    } catch (error) {
+      mensaje.textContent =
+        error instanceof Error ? error.message : "Error desconocido.";
+      mensaje.hidden = false;
+    } finally {
+      boton.disabled = false;
+      boton.textContent = "Analizar posiciones";
+    }
+  });
+  archivo.addEventListener("change", () => {
+    vistaActual = null;
+    confirmar.disabled = true;
+  });
+
+  confirmar.addEventListener("click", async () => {
+    if (
+      !vistaActual ||
+      !vistaActual.puedeConfirmar ||
+      !hayCambiosPendientes(vistaActual) ||
+      !archivo.files?.length
+    ) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Se aplicarán ${vistaActual.resumen.movimientos} movimientos, ${vistaActual.resumen.nuevos} altas y ${vistaActual.resumen.retirados} retiros. También se reconciliarán las asignaciones duplicadas. ¿Confirmás la actualización de la base de datos?`,
+      )
+    )
+      return;
+    confirmar.disabled = true;
+    confirmar.textContent = "Actualizando…";
+    try {
+      const datos = new FormData();
+      datos.set("archivo", archivo.files[0]);
+      datos.set("snapshot", vistaActual.snapshot);
+      datos.set("hashArchivo", vistaActual.hashArchivo);
+      const respuesta = await fetch("/api/base-skus/posiciones/confirmar", {
+        method: "POST",
+        body: datos,
+        credentials: "same-origin",
+      });
+      if (
+        !(respuesta.headers.get("content-type") ?? "").includes(
+          "application/json",
+        )
+      )
+        throw new Error("Respuesta inválida. Revisá sesión y permisos.");
+      const resultado = await respuesta.json();
+      if (!respuesta.ok || !resultado.ok)
+        throw new Error(resultado.error ?? "No se pudo actualizar.");
+      modal.close();
+      vistaActual = null;
+      form.reset();
+      mensaje.hidden = false;
+      mensaje.classList.add("success-box");
+      mensaje.textContent = `Actualización confirmada. Registros cerrados: ${resultado.resultado.cerradas}. Asignaciones creadas: ${resultado.resultado.creadas}.`;
+    } catch (error) {
+      aviso.textContent =
+        error instanceof Error ? error.message : "No se pudo actualizar.";
+      vistaActual = null;
+      advertencias.hidden = false;
+      advertencias.textContent =
+        "No se aplicó la actualización. Revisá el mensaje y volvé a analizar antes de intentar nuevamente.";
+    } finally {
+      confirmar.textContent = "Confirmar actualización";
+      confirmar.disabled = true;
+    }
+  });
+  document
+    .querySelector("#cerrar")
+    ?.addEventListener("click", () => modal.close());
+  document
+    .querySelector("#cerrar-x")
+    ?.addEventListener("click", () => modal.close());
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.close();
+  });
+</script>
 
 <style>
   .panel {
@@ -67,11 +351,9 @@ const noEncontrados = url.searchParams.get("noEncontrados");
     max-width: 1180px;
     margin: 0 auto;
   }
-
   .header {
     margin-bottom: 28px;
   }
-
   .kicker {
     margin: 0 0 10px;
     font-size: 12px;
@@ -80,7 +362,6 @@ const noEncontrados = url.searchParams.get("noEncontrados");
     text-transform: uppercase;
     color: #db2777;
   }
-
   h1 {
     margin: 0;
     font-size: clamp(32px, 5vw, 48px);
@@ -89,7 +370,6 @@ const noEncontrados = url.searchParams.get("noEncontrados");
     letter-spacing: -0.04em;
     color: #0f172a;
   }
-
   .description {
     max-width: 720px;
     margin: 14px 0 0;
@@ -97,65 +377,12 @@ const noEncontrados = url.searchParams.get("noEncontrados");
     line-height: 1.6;
     color: #64748b;
   }
-
-  .form-card {
-    display: grid;
-    gap: 20px;
-    padding: 24px;
-    border-radius: 24px;
-    background: #ffffff;
-    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
-  }
-
-  label {
-    display: grid;
-    gap: 8px;
-    font-weight: 700;
-    color: #334155;
-  }
-
-  input {
-    width: 100%;
-    border: 1px solid #cbd5e1;
-    border-radius: 14px;
-    padding: 13px 14px;
-    font-size: 15px;
-  }
-
-  button {
-    border: none;
-    border-radius: 16px;
-    padding: 14px 22px;
-    font-weight: 800;
-    color: white;
-    background: #0f172a;
-    cursor: pointer;
-  }
-
-  .success-box,
-  .error-box {
-    margin-top: 20px;
-    padding: 16px;
-    border-radius: 18px;
-    font-weight: 700;
-  }
-
-  .success-box {
-    background: #dcfce7;
-    color: #166534;
-  }
-
-  .error-box {
-    background: #fee2e2;
-    color: #991b1b;
-  }
   .tabs {
     display: flex;
     gap: 12px;
     margin: 28px 0;
     flex-wrap: wrap;
   }
-
   .tab {
     padding: 12px 18px;
     border-radius: 999px;
@@ -164,9 +391,182 @@ const noEncontrados = url.searchParams.get("noEncontrados");
     font-weight: 800;
     text-decoration: none;
   }
-
   .tab.active {
     background: #0f172a;
     color: white;
+  }
+  .form-card {
+    display: grid;
+    gap: 20px;
+    padding: 24px;
+    border-radius: 24px;
+    background: white;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  }
+  label {
+    display: grid;
+    gap: 8px;
+    font-weight: 700;
+    color: #334155;
+  }
+  input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 13px 14px;
+    font-size: 15px;
+  }
+  button {
+    border: 0;
+    border-radius: 16px;
+    padding: 14px 22px;
+    font-weight: 800;
+    color: white;
+    background: #0f172a;
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+  }
+  .success-box {
+    background: #dcfce7 !important;
+    color: #166534 !important;
+  }
+  .error-box {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 18px;
+    font-weight: 700;
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  dialog {
+    width: min(960px, calc(100vw - 30px));
+    max-height: 88vh;
+    border: 0;
+    border-radius: 24px;
+    padding: 0;
+    box-shadow: 0 25px 80px rgba(15, 23, 42, 0.35);
+  }
+  dialog::backdrop {
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .modal-inner {
+    padding: 26px;
+  }
+  .modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 16px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 26px;
+    color: #0f172a;
+  }
+  .close {
+    padding: 2px 12px;
+    border-radius: 12px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 28px;
+  }
+  .modal-description {
+    font-size: 14px;
+    margin-bottom: 18px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    display: grid;
+    gap: 4px;
+    background: #f1f5f9;
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .stat strong {
+    font-size: 25px;
+    color: #0f172a;
+  }
+  .stat span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .warning-box {
+    margin-top: 16px;
+    background: #fff7ed;
+    color: #9a3412;
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .detail-header {
+    margin-top: 24px;
+  }
+  .detail-header h3 {
+    margin: 0;
+  }
+  .detail-header p {
+    margin: 6px 0 12px;
+    color: #64748b;
+    font-size: 13px;
+  }
+  .detail-block {
+    border-top: 1px solid #e2e8f0;
+    padding: 12px 0;
+  }
+  .detail-block summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: #334155;
+  }
+  .detail-block ul {
+    max-height: 210px;
+    overflow: auto;
+    margin: 10px 0 0;
+    padding-left: 22px;
+    font-size: 13px;
+    color: #475569;
+  }
+  .detail-block li {
+    margin-bottom: 5px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  .secondary {
+    background: #e2e8f0;
+    color: #334155;
+  }
+  @media (max-width: 600px) {
+    .stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .modal-inner {
+      padding: 18px;
+    }
+  }
+  button.todo-actualizado:disabled {
+    background: #16a34a;
+    color: #ffffff;
+    opacity: 1;
+    cursor: default;
   }
 </style>
