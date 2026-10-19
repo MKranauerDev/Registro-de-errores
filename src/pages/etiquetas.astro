@@ -1,0 +1,1085 @@
+---
+export const prerender = false;
+
+import AppLayout from "../layouts/AppLayout.astro";
+import { getSessionUser } from "../lib/auth";
+
+const usuario = await getSessionUser(Astro.cookies);
+if (!usuario) {
+  return Astro.redirect("/login");
+}
+
+if (!["ADMIN", "SUPERVISOR"].includes(usuario.rol)) {
+  return Astro.redirect("/");
+}
+---
+
+<AppLayout title="Impresión de etiquetas">
+  <section class="etiquetas-page">
+    <header class="page-header">
+      <p class="kicker">Gestión de posiciones</p>
+      <h1>Impresión de etiquetas</h1>
+      <p>
+        Buscá artículos o posiciones, prepará las etiquetas y organizalas para
+        imprimir en hojas A4.
+      </p>
+    </header>
+
+    <section class="panel">
+      <h2>Buscar etiquetas</h2>
+
+      <form id="form-busqueda">
+        <label for="busqueda">Código SKU o posición</label>
+
+        <div class="search-row">
+          <input
+            id="busqueda"
+            name="busqueda"
+            type="text"
+            placeholder="Ej.: XA107 o 10242953"
+            autocomplete="off"
+            required
+          />
+
+          <button type="submit">Buscar</button>
+        </div>
+      </form>
+
+      <p id="mensaje" aria-live="polite"></p>
+    </section>
+
+    <section class="panel panel-preparadas">
+      <div class="section-heading">
+        <h2>Etiquetas preparadas</h2>
+        <span id="total-preparadas">0 etiquetas</span>
+      </div>
+
+      <p id="estado-vacio">Todavía no agregaste etiquetas para imprimir.</p>
+
+      <div class="tabla-etiquetas-contenedor">
+        <table class="tabla-etiquetas">
+          <thead>
+            <tr>
+              <th>Posición</th>
+              <th>SKU</th>
+              <th>Cantidad</th>
+              <th class="columna-accion">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="lista-etiquetas"></tbody>
+        </table>
+      </div>
+
+      <div class="acciones-preparadas">
+        <button id="imprimir" class="btn-vista-previa" type="button" disabled>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"
+            ></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          Vista previa
+        </button>
+
+        <button id="imprimir-directo" type="button" disabled>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 9V2h12v7"></path>
+            <path
+              d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
+            ></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+            <path d="M18 12h.01"></path>
+          </svg>
+          Imprimir etiquetas
+        </button>
+      </div>
+    </section>
+  </section>
+  <div
+    id="hoja-impresion"
+    class="hoja-impresion"
+    aria-label="Vista previa de etiquetas"
+  >
+  </div>
+  <dialog id="modal-vista-previa" class="modal-vista-previa">
+    <section class="preview-section">
+      <div class="preview-header">
+        <div>
+          <h2>Vista previa de impresión</h2>
+          <p id="resumen-impresion">0 etiquetas · 0 hojas A4</p>
+        </div>
+
+        <button
+          id="cerrar-vista-previa"
+          type="button"
+          class="btn-cerrar-modal"
+          aria-label="Cerrar vista previa"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="preview-scroll">
+        <div id="vista-previa" hidden></div>
+      </div>
+
+      <nav
+        id="paginacion-etiquetas"
+        class="paginacion-etiquetas"
+        aria-label="Páginas de etiquetas"
+        hidden
+      >
+        <button type="button" id="primera-pagina">« Primera</button>
+        <button type="button" id="pagina-anterior">‹ Anterior</button>
+        <span id="indicador-pagina"></span>
+        <button type="button" id="pagina-siguiente">Siguiente ›</button>
+        <button type="button" id="ultima-pagina">Última »</button>
+      </nav>
+
+      <div class="acciones-modal">
+        <button id="cancelar-vista-previa" type="button" class="btn-secundario">
+          Cerrar
+        </button>
+        <button id="confirmar-impresion" type="button">
+          Imprimir etiquetas
+        </button>
+      </div>
+    </section>
+  </dialog>
+</AppLayout>
+<script>
+  import JsBarcode from "jsbarcode";
+  const vistaPrevia = document.querySelector<HTMLElement>("#vista-previa");
+  const resumenImpresion =
+    document.querySelector<HTMLElement>("#resumen-impresion");
+  const formulario = document.querySelector<HTMLFormElement>("#form-busqueda");
+  const campo = document.querySelector<HTMLInputElement>("#busqueda");
+  const mensaje = document.querySelector<HTMLElement>("#mensaje");
+  const lista = document.querySelector<HTMLElement>("#lista-etiquetas");
+  const estadoVacio = document.querySelector<HTMLElement>("#estado-vacio");
+  const botonImprimir = document.querySelector<HTMLButtonElement>("#imprimir");
+
+  type ResultadoEtiqueta = {
+    ok: boolean;
+    error?: string;
+    sku?: {
+      codigo: string;
+      descripcion: string | null;
+      imagenUrl: string | null;
+    };
+    etiqueta?: {
+      posicion: string;
+      orientacion: "DELANTERA" | "TRASERA";
+      cantidad: number;
+      requiereConfirmacion: boolean;
+    };
+  };
+
+  const preparadas = new Map<string, ResultadoEtiqueta>();
+  const ETIQUETAS_POR_PAGINA = 15;
+  let paginaActual = 1;
+
+  const paginacion = document.querySelector<HTMLElement>(
+    "#paginacion-etiquetas",
+  );
+  const indicador = document.querySelector<HTMLElement>("#indicador-pagina");
+
+  const primera = document.querySelector<HTMLButtonElement>("#primera-pagina");
+  const anterior =
+    document.querySelector<HTMLButtonElement>("#pagina-anterior");
+  const siguiente =
+    document.querySelector<HTMLButtonElement>("#pagina-siguiente");
+  const ultima = document.querySelector<HTMLButtonElement>("#ultima-pagina");
+  formulario?.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+
+    const busqueda = campo?.value.trim();
+
+    if (!busqueda || !mensaje) return;
+
+    mensaje.textContent = "Buscando...";
+
+    try {
+      const respuesta = await fetch(
+        `/api/etiquetas/buscar?q=${encodeURIComponent(busqueda)}`,
+      );
+
+      const datos: ResultadoEtiqueta = await respuesta.json();
+
+      if (!respuesta.ok || !datos.ok || !datos.sku || !datos.etiqueta) {
+        mensaje.textContent = datos.error ?? "No se encontró el artículo.";
+        return;
+      }
+
+      const posicion = datos.etiqueta.posicion;
+
+      if (preparadas.has(posicion)) {
+        mensaje.textContent = `La posición ${posicion} ya está agregada.`;
+        return;
+      }
+
+      preparadas.set(posicion, datos);
+      mensaje.textContent = `${posicion} agregada correctamente.`;
+
+      actualizarLista();
+
+      if (campo) {
+        campo.value = "";
+        campo.focus();
+      }
+    } catch (error) {
+      console.error(error);
+      mensaje.textContent = "No se pudo realizar la búsqueda.";
+    }
+  });
+
+  const totalPreparadas =
+    document.querySelector<HTMLElement>("#total-preparadas");
+
+  const botonImprimirDirecto =
+    document.querySelector<HTMLButtonElement>("#imprimir-directo");
+
+  function actualizarLista() {
+    if (!lista || !estadoVacio || !botonImprimir) return;
+
+    lista.replaceChildren();
+
+    const elementos = [...preparadas.entries()];
+
+    for (const [posicion, datos] of elementos) {
+      if (!datos.sku || !datos.etiqueta) continue;
+
+      const fila = document.createElement("tr");
+
+      for (const valor of [
+        posicion,
+        datos.sku.codigo,
+        String(datos.etiqueta.cantidad),
+      ]) {
+        const celda = document.createElement("td");
+        celda.textContent = valor;
+        fila.append(celda);
+      }
+
+      const celdaAccion = document.createElement("td");
+      celdaAccion.className = "columna-accion";
+
+      const eliminar = document.createElement("button");
+      eliminar.type = "button";
+      eliminar.className = "btn-quitar";
+      eliminar.title = `Quitar posición ${posicion} de la impresión`;
+      eliminar.setAttribute(
+        "aria-label",
+        `Quitar posición ${posicion} de la impresión`,
+      );
+
+      eliminar.innerHTML = `
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="17"
+    height="17"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3 6h18"/>
+    <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>
+    <path d="M19 6l-1 14H6L5 6"/>
+    <path d="M10 11v5"/>
+    <path d="M14 11v5"/>
+  </svg>
+`;
+
+      eliminar.addEventListener("click", () => {
+        preparadas.delete(posicion);
+        actualizarLista();
+      });
+
+      celdaAccion.append(eliminar);
+      fila.append(celdaAccion);
+      lista.append(fila);
+    }
+
+    const total = elementos.reduce(
+      (suma, [, datos]) => suma + (datos.etiqueta?.cantidad ?? 0),
+      0,
+    );
+
+    if (totalPreparadas) {
+      totalPreparadas.textContent = `${total} etiquetas`;
+    }
+
+    estadoVacio.hidden = elementos.length > 0;
+    botonImprimir.disabled = elementos.length === 0;
+
+    if (botonImprimirDirecto) {
+      botonImprimirDirecto.disabled = elementos.length === 0;
+    }
+
+    actualizarVistaPrevia();
+  }
+
+  function generarEtiquetas(contenedor: HTMLElement) {
+    contenedor.replaceChildren();
+
+    for (const datos of preparadas.values()) {
+      if (!datos.sku || !datos.etiqueta) continue;
+
+      const { sku, etiqueta } = datos;
+
+      for (let i = 0; i < etiqueta.cantidad; i++) {
+        const fila = document.createElement("div");
+        fila.className = "etiqueta-impresa";
+
+        const codigo = document.createElement("div");
+        codigo.className = "celda-sku";
+        codigo.textContent = sku.codigo;
+
+        const posicion = document.createElement("div");
+        posicion.className = "celda-posicion";
+        posicion.textContent = etiqueta.posicion;
+
+        const barras = document.createElement("div");
+        barras.className = "celda-barras";
+
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+
+        JsBarcode(svg, etiqueta.posicion, {
+          format: "CODE39",
+          displayValue: false,
+          width: 1.4,
+          height: 55,
+          margin: 0,
+        });
+
+        barras.append(svg);
+
+        const descripcion = document.createElement("div");
+        descripcion.className = "celda-descripcion";
+        descripcion.textContent = sku.descripcion ?? "";
+
+        fila.append(codigo, posicion, barras, descripcion);
+        contenedor.append(fila);
+      }
+    }
+  }
+
+  function actualizarVistaPrevia() {
+    if (!vistaPrevia || !resumenImpresion) return;
+
+    generarEtiquetas(vistaPrevia);
+
+    const etiquetas = Array.from(vistaPrevia.children);
+    const total = etiquetas.length;
+    const totalPaginas = Math.max(1, Math.ceil(total / ETIQUETAS_POR_PAGINA));
+
+    paginaActual = Math.min(Math.max(1, paginaActual), totalPaginas);
+
+    etiquetas.forEach((etiqueta, indice) => {
+      const desde = (paginaActual - 1) * ETIQUETAS_POR_PAGINA;
+      const hasta = paginaActual * ETIQUETAS_POR_PAGINA;
+      (etiqueta as HTMLElement).hidden = indice < desde || indice >= hasta;
+    });
+
+    resumenImpresion.textContent = `${total} etiqueta(s) · ${Math.ceil(total / ETIQUETAS_POR_PAGINA)} hoja(s) A4 estimadas`;
+
+    vistaPrevia.hidden = total === 0;
+
+    if (paginacion && indicador) {
+      paginacion.hidden = totalPaginas <= 1;
+      indicador.textContent = `Página ${paginaActual} de ${totalPaginas}`;
+    }
+
+    if (primera) primera.disabled = paginaActual === 1;
+    if (anterior) anterior.disabled = paginaActual === 1;
+    if (siguiente) siguiente.disabled = paginaActual === totalPaginas;
+    if (ultima) ultima.disabled = paginaActual === totalPaginas;
+  }
+  function cambiarPagina(nuevaPagina: number) {
+    paginaActual = nuevaPagina;
+    actualizarVistaPrevia();
+  }
+
+  primera?.addEventListener("click", () => cambiarPagina(1));
+  anterior?.addEventListener("click", () => cambiarPagina(paginaActual - 1));
+  siguiente?.addEventListener("click", () => cambiarPagina(paginaActual + 1));
+  ultima?.addEventListener("click", () => cambiarPagina(999999));
+
+  const modal = document.querySelector<HTMLDialogElement>(
+    "#modal-vista-previa",
+  );
+
+  const cerrarModal = document.querySelector<HTMLButtonElement>(
+    "#cerrar-vista-previa",
+  );
+
+  const cancelarModal = document.querySelector<HTMLButtonElement>(
+    "#cancelar-vista-previa",
+  );
+
+  const confirmarImpresion = document.querySelector<HTMLButtonElement>(
+    "#confirmar-impresion",
+  );
+
+  botonImprimir?.addEventListener("click", () => {
+    if (!modal || preparadas.size === 0) return;
+
+    paginaActual = 1;
+    actualizarVistaPrevia();
+    modal.showModal();
+  });
+
+  cerrarModal?.addEventListener("click", () => modal?.close());
+  cancelarModal?.addEventListener("click", () => modal?.close());
+
+  modal?.addEventListener("click", (evento) => {
+    if (evento.target === modal) {
+      modal.close();
+    }
+  });
+
+  confirmarImpresion?.addEventListener("click", () => {
+    const hoja = document.querySelector<HTMLElement>("#hoja-impresion");
+
+    if (!hoja || preparadas.size === 0) return;
+
+    generarEtiquetas(hoja);
+    modal?.close();
+    window.print();
+  });
+</script>
+<style>
+  .etiquetas-page {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: 28px;
+  }
+
+  .kicker {
+    color: #b83280;
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  h1 {
+    margin: 8px 0;
+    font-size: 32px;
+  }
+
+  .page-header > p:last-child {
+    color: #64748b;
+  }
+
+  .panel {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 22px;
+  }
+
+  h2 {
+    font-size: 19px;
+    margin: 0 0 20px;
+  }
+
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+
+  .search-row {
+    display: flex;
+    gap: 12px;
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    padding: 13px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+
+  button {
+    background: #b83280;
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-heading h2 {
+    margin-bottom: 0;
+  }
+
+  #estado-vacio {
+    color: #64748b;
+    margin-top: 24px;
+  }
+
+  #mensaje {
+    min-height: 20px;
+    color: #475569;
+  }
+
+  @media (max-width: 700px) {
+    .search-row,
+    .section-heading {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+  .etiqueta-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .etiqueta-item p {
+    margin: 6px 0;
+    color: #475569;
+  }
+
+  .etiqueta-item small {
+    color: #64748b;
+  }
+
+  .etiqueta-item .btn-quitar {
+    background: #f1f5f9;
+    color: #b42342;
+  }
+  .hoja-impresion {
+    display: block !important;
+    width: 18.5cm;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  @media print {
+    @page {
+      size: A4 portrait;
+      margin: 1cm 1.25cm;
+    }
+
+    :global(body) {
+      margin: 0 !important;
+      background: white !important;
+    }
+
+    :global(aside) {
+      display: none !important;
+    }
+
+    :global(.app-content) {
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    .etiquetas-page {
+      display: none !important;
+    }
+    .hoja-impresion {
+      display: block !important;
+      width: 18.5cm;
+      margin: 0 auto;
+    }
+
+    :global(.etiqueta-impresa) {
+      width: 18.5cm !important;
+      height: 1.8cm !important;
+      display: grid !important;
+      grid-template-columns: 2.9cm 2.3cm 4.4cm 8.9cm !important;
+      gap: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    :global(.etiqueta-impresa > div) {
+      border: 1px solid black;
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      overflow: hidden;
+      box-sizing: border-box;
+      font-weight: 700;
+    }
+
+    .celda-sku,
+    .celda-posicion {
+      font-size: 15pt;
+    }
+
+    .celda-barras svg {
+      width: 100%;
+      max-width: 4.1cm;
+      height: 1.4cm;
+    }
+
+    .celda-descripcion {
+      padding: 0 0.15cm;
+      font-size: 12pt;
+      text-align: center;
+    }
+  }
+  .preview-section {
+    max-width: 1180px;
+    margin: 24px auto;
+    padding: 24px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+  }
+
+  .preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .preview-header h2 {
+    margin: 0;
+    font-size: 20px;
+  }
+
+  .preview-header p {
+    color: #64748b;
+    font-size: 14px;
+  }
+
+  .preview-scroll {
+    overflow-x: auto;
+    display: flex;
+    justify-content: center;
+  }
+
+  #vista-previa {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  #vista-previa[hidden] {
+    display: none;
+  }
+
+  :global(#vista-previa .etiqueta-impresa) {
+    display: grid;
+    grid-template-columns: 2.175cm 1.725cm 3.3cm 6.675cm;
+    width: 13.875cm;
+    height: 1.35cm;
+    box-sizing: border-box;
+    margin: 0;
+  }
+
+  :global(#vista-previa .etiqueta-impresa > div) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #334155;
+    box-sizing: border-box;
+    font-weight: 700;
+  }
+
+  :global(#vista-previa .celda-barras svg) {
+    width: 100%;
+    max-width: 3.075cm;
+    height: 1.05cm;
+  }
+
+  :global(#vista-previa .celda-sku),
+  :global(#vista-previa .celda-posicion) {
+    font-size: 11pt;
+  }
+
+  :global(#vista-previa .celda-descripcion) {
+    padding: 0 0.1cm;
+    font-size: 9pt;
+    text-align: center;
+  }
+
+  @media print {
+    .preview-section {
+      display: none !important;
+    }
+  }
+  .paginacion-etiquetas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 22px;
+  }
+
+  .paginacion-etiquetas[hidden] {
+    display: none !important;
+  }
+
+  .paginacion-etiquetas button {
+    background: #f1f5f9;
+    color: #172033;
+    border: 1px solid #cbd5e1;
+    padding: 9px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .paginacion-etiquetas button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  #indicador-pagina {
+    font-weight: 700;
+    color: #475569;
+  }
+
+  :global(#vista-previa .etiqueta-impresa[hidden]) {
+    display: none !important;
+  }
+
+  @media print {
+    .paginacion-etiquetas {
+      display: none !important;
+    }
+  }
+
+  .tabla-etiquetas-contenedor {
+    overflow-x: auto;
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    scrollbar-gutter: stable;
+  }
+
+  .tabla-etiquetas-contenedor::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .tabla-etiquetas-contenedor::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+  }
+
+  .tabla-etiquetas-contenedor::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border: 2px solid #f1f5f9;
+    border-radius: 10px;
+  }
+
+  .tabla-etiquetas {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .tabla-etiquetas th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8fafc;
+    color: #475569;
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    white-space: nowrap;
+  }
+
+  .tabla-etiquetas td {
+    height: 30px;
+    padding: 4px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
+    box-sizing: border-box;
+  }
+
+  .tabla-etiquetas tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .tabla-etiquetas td:nth-child(1),
+  .tabla-etiquetas td:nth-child(2) {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .tabla-etiquetas .btn-quitar {
+    background: #fff1f2;
+    color: #be123c;
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  @media print {
+    .tabla-etiquetas-contenedor {
+      display: none !important;
+    }
+  }
+  .modal-vista-previa {
+    width: min(1050px, 94vw);
+    max-width: 1050px;
+    max-height: 90vh;
+    padding: 0;
+    border: none;
+    border-radius: 16px;
+    background: white;
+    color: #172033;
+    box-shadow: 0 24px 80px rgb(15 23 42 / 25%);
+  }
+
+  .modal-vista-previa::backdrop {
+    background: rgb(15 23 42 / 65%);
+  }
+
+  .modal-vista-previa .preview-section {
+    max-width: none;
+    margin: 0;
+    padding: 24px;
+    border: none;
+    border-radius: 0;
+  }
+
+  .modal-vista-previa .preview-scroll {
+    max-height: 58vh;
+    overflow: auto;
+  }
+
+  .btn-cerrar-modal {
+    background: #f1f5f9;
+    color: #334155;
+    padding: 8px 12px;
+  }
+
+  .acciones-modal {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .btn-secundario {
+    background: #f1f5f9;
+    color: #334155;
+  }
+
+  @media print {
+    .modal-vista-previa {
+      display: none !important;
+    }
+  }
+  /* Tabla adaptable con scroll interno */
+  .tabla-etiquetas-contenedor {
+    height: auto;
+    min-height: 0;
+    max-height: 345px;
+    overflow-y: auto;
+    overflow-x: auto;
+    scrollbar-gutter: stable;
+  }
+
+  /* Acciones alineadas a la derecha */
+  .acciones-preparadas {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .acciones-preparadas button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+  }
+
+  /* Vista previa: botón secundario */
+  .acciones-preparadas .btn-vista-previa {
+    background: white;
+    color: #172033;
+    border: 1px solid #cbd5e1;
+  }
+
+  /* Imprimir: acción principal */
+  .acciones-preparadas #imprimir-directo {
+    background: #b83280;
+    color: white;
+  }
+  /* Filas más ordenadas */
+  .tabla-etiquetas tbody tr {
+    border-bottom: 1px solid #edf2f7;
+  }
+
+  .tabla-etiquetas tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .tabla-etiquetas tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  /* Columna de acciones compacta */
+  .tabla-etiquetas .columna-accion {
+    width: 90px;
+    text-align: center;
+  }
+
+  /* Botón de eliminar */
+  .tabla-etiquetas .btn-quitar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 32px;
+    height: 32px;
+    padding: 0;
+
+    background: #fff1f2;
+    color: #be123c;
+    border: 1px solid #ffe4e6;
+    border-radius: 8px;
+
+    cursor: pointer;
+    transition:
+      background 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .tabla-etiquetas .btn-quitar:hover {
+    background: #ffe4e6;
+    transform: scale(1.06);
+  }
+
+  .tabla-etiquetas .btn-quitar:focus-visible {
+    outline: 2px solid #be123c;
+    outline-offset: 2px;
+  }
+  /* Centrar encabezados y contenido */
+  .tabla-etiquetas th,
+  .tabla-etiquetas td {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  /* Distribución equilibrada de columnas */
+  .tabla-etiquetas {
+    table-layout: fixed;
+  }
+
+  .tabla-etiquetas th:nth-child(1) {
+    width: 25%;
+  }
+
+  .tabla-etiquetas th:nth-child(2) {
+    width: 30%;
+  }
+
+  .tabla-etiquetas th:nth-child(3) {
+    width: 25%;
+  }
+
+  .tabla-etiquetas th:nth-child(4) {
+    width: 20%;
+  }
+
+  /* Centrar la papelera */
+  .tabla-etiquetas .columna-accion {
+    text-align: center;
+  }
+  /* Encabezados */
+  .tabla-etiquetas th {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  /* Celdas generadas dinámicamente con JavaScript */
+  :global(.tabla-etiquetas tbody td) {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  /* Centrado de los encabezados */
+  .tabla-etiquetas th {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  /* Centrado de las celdas creadas con JavaScript */
+  .tabla-etiquetas :global(tbody td) {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  /* Centrado del botón de eliminar */
+  .tabla-etiquetas :global(td.columna-accion) {
+    text-align: center;
+  }
+</style>
