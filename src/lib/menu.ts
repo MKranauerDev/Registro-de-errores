@@ -22,6 +22,10 @@ export const menuPorRol = {
       ruta: "/mapa-linea",
     },
     {
+      nombre: "Impresión de etiquetas",
+      ruta: "/etiquetas",
+    },
+    {
       nombre: "Reportes",
       ruta: "/reportes",
     },
@@ -49,6 +53,10 @@ export const menuPorRol = {
       nombre: "Mapa de línea",
       ruta: "/mapa-linea",
     },
+    {
+  nombre: "Impresión de etiquetas",
+  ruta: "/etiquetas",
+},
   ],
 
   CONTROLADOR: [
